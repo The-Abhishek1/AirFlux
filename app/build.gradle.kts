@@ -53,4 +53,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.navigation.compose)
     implementation("androidx.compose.material:material-icons-extended:1.7.5")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 }
