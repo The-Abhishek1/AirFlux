@@ -2,16 +2,15 @@ package com.xcloak.airflux.core.common
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import okhttp3.Call
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 object DownloadUtils {
 
-    fun buildCall(client: OkHttpClient, url: String): Call {
-        val request = Request.Builder().url(url).build()
+    fun buildCall(client: okhttp3.OkHttpClient, url: String): Call {
+        val request = okhttp3.Request.Builder().url(url).build()
         return client.newCall(request)
     }
 
@@ -28,15 +27,17 @@ object DownloadUtils {
             val totalBytes = body.contentLength()
 
             val resolver = context.contentResolver
+            val (collection, relativePath) = collectionFor(mimeType)
+
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Downloads.IS_PENDING, 1)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
             }
 
-            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val itemUri = resolver.insert(collection, values) ?: return false
 
             resolver.openOutputStream(itemUri)?.use { outputStream ->
@@ -54,10 +55,32 @@ object DownloadUtils {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 resolver.update(itemUri, values, null, null)
             }
         }
         return true
+    }
+
+    /** Routes by MIME type: videos -> Movies/AirFlux, audio -> Music/AirFlux, everything else -> Download/AirFlux */
+    private fun collectionFor(mimeType: String): Pair<Uri, String> {
+        return when {
+            mimeType.startsWith("video/") -> {
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                uri to "Movies/AirFlux"
+            }
+            mimeType.startsWith("audio/") -> {
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                uri to "Music/AirFlux"
+            }
+            mimeType.startsWith("image/") -> {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI to "Pictures/AirFlux"
+            }
+            else -> {
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI to "Download/AirFlux"
+            }
+        }
     }
 }

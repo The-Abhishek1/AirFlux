@@ -13,7 +13,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.core.designsystem.GradientAppTitle
+import com.xcloak.airflux.feature.downloader.ui.DownloaderHomeScreen
 import com.xcloak.airflux.feature.sharing.ui.ReceiveScreen
 import com.xcloak.airflux.feature.sharing.ui.SendScreen
 import com.xcloak.airflux.ui.theme.ElectricCyan
@@ -56,7 +56,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
 
         navigation(startDestination = "downloader_home", route = "downloader_graph") {
-            composable("downloader_home") { DownloaderPlaceholderScreen() }
+            composable("downloader_home") { DownloaderHomeScreen() }
         }
     }
 }
@@ -129,19 +129,6 @@ fun SharingModePicker(onSendClick: () -> Unit, onReceiveClick: () -> Unit) {
                     Text("Connect to another device and download files", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun DownloaderPlaceholderScreen() {
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.Center as Alignment.Horizontal
-        ) {
-            Text("Downloader")
         }
     }
 }
