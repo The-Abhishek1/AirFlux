@@ -34,4 +34,17 @@ object FileUtils {
         val value = bytes / 1024.0.pow(digitGroups.toDouble())
         return String.format("%.1f %s", value, units[digitGroups])
     }
+
+    fun formatSpeed(bytesPerSec: Long): String {
+        if (bytesPerSec <= 0) return "-- KB/s"
+        return "${formatSize(bytesPerSec)}/s"
+    }
+
+    fun formatEta(seconds: Long): String {
+        if (seconds < 0) return "--"
+        if (seconds < 60) return "${seconds}s"
+        val minutes = seconds / 60
+        val remSeconds = seconds % 60
+        return "${minutes}m ${remSeconds}s"
+    }
 }

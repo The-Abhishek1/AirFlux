@@ -18,8 +18,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,13 +53,16 @@ import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.domain.model.RemoteFile
 import com.xcloak.airflux.feature.sharing.viewmodel.ConnectionState
+import com.xcloak.airflux.feature.sharing.viewmodel.DownloadProgress
 import com.xcloak.airflux.feature.sharing.viewmodel.ReceiveViewModel
+import com.xcloak.airflux.feature.sharing.viewmodel.TransferStatus
 import com.xcloak.airflux.ui.theme.ElectricCyan
 import com.xcloak.airflux.ui.theme.ErrorRed
 import com.xcloak.airflux.ui.theme.SuccessGreen
 import com.xcloak.airflux.ui.theme.TextMuted
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
+import com.xcloak.airflux.ui.theme.WarningAmber
 
 @Composable
 fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel()) {
@@ -160,7 +166,9 @@ fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel()) {
                             RemoteFileRow(
                                 file = file,
                                 progress = downloadProgress[file.index],
-                                onDownload = { viewModel.downloadFile(file) }
+                                onDownload = { viewModel.downloadFile(file) },
+                                onCancel = { viewModel.cancelDownload(file.index) },
+                                onRetry = { viewModel.retryDownload(file) }
                             )
                         }
                     }
@@ -173,8 +181,10 @@ fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel()) {
 @Composable
 private fun RemoteFileRow(
     file: RemoteFile,
-    progress: com.xcloak.airflux.feature.sharing.viewmodel.DownloadProgress?,
-    onDownload: () -> Unit
+    progress: DownloadProgress?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -183,21 +193,41 @@ private fun RemoteFileRow(
                     Text(file.name, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                     Text(FileUtils.formatSize(file.sizeBytes), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
-                if (progress?.done == true) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = SuccessGreen)
-                } else {
-                    IconButton(onClick = onDownload) {
+
+                when (progress?.status) {
+                    TransferStatus.DONE -> Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = SuccessGreen)
+                    TransferStatus.DOWNLOADING -> IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = ErrorRed)
+                    }
+                    TransferStatus.QUEUED -> Text("Queued", color = WarningAmber, style = MaterialTheme.typography.bodySmall)
+                    TransferStatus.FAILED -> IconButton(onClick = onRetry) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = WarningAmber)
+                    }
+                    TransferStatus.CANCELLED -> IconButton(onClick = onRetry) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = TextMuted)
+                    }
+                    null -> IconButton(onClick = onDownload) {
                         Icon(Icons.Default.Download, contentDescription = "Download", tint = ElectricCyan)
                     }
                 }
             }
-            if (progress != null && !progress.done) {
+
+            if (progress?.status == TransferStatus.DOWNLOADING) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(
                     progress = { progress.progress },
                     color = ElectricCyan,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(FileUtils.formatSpeed(progress.speedBytesPerSec), color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("ETA ${FileUtils.formatEta(progress.etaSeconds)}", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            if (progress?.status == TransferStatus.FAILED) {
+                Text("Download failed", color = ErrorRed, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
             }
         }
     }

@@ -4,24 +4,25 @@ import android.content.ContentValues
 import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.IOException
 
 object DownloadUtils {
 
-    private val client = OkHttpClient()
+    fun buildCall(client: OkHttpClient, url: String): Call {
+        val request = Request.Builder().url(url).build()
+        return client.newCall(request)
+    }
 
-    fun downloadFile(
+    fun executeAndSave(
         context: Context,
-        url: String,
+        call: Call,
         fileName: String,
         mimeType: String,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
     ): Boolean {
-        val request = Request.Builder().url(url).build()
-
-        client.newCall(request).execute().use { response ->
+        call.execute().use { response ->
             if (!response.isSuccessful) return false
             val body = response.body ?: return false
             val totalBytes = body.contentLength()
@@ -59,6 +60,4 @@ object DownloadUtils {
         }
         return true
     }
-
-    class DownloadException(message: String) : IOException(message)
 }
