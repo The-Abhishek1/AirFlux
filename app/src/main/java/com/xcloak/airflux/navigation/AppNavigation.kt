@@ -16,7 +16,22 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
-
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import com.xcloak.airflux.core.designsystem.AppBackground
+import com.xcloak.airflux.core.designsystem.GlassCard
+import com.xcloak.airflux.core.designsystem.GradientAppTitle
+import com.xcloak.airflux.ui.theme.ElectricCyan
+import com.xcloak.airflux.ui.theme.TextPrimary
+import com.xcloak.airflux.ui.theme.TextSecondary
+import com.xcloak.airflux.feature.sharing.ui.SharingHomeScreen
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = "home") {
@@ -29,7 +44,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
 
         navigation(startDestination = "sharing_home", route = "sharing_graph") {
-            composable("sharing_home") { SharingPlaceholderScreen() }
+            composable("sharing_home") { SharingHomeScreen() }
         }
 
         navigation(startDestination = "downloader_home", route = "downloader_graph") {
@@ -40,38 +55,70 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
 
 @Composable
 fun HomeScreen(onShareClick: () -> Unit, onDownloadClick: () -> Unit) {
-    Scaffold { padding ->
+    AppBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("AirFlux")
-            Button(onClick = onShareClick, modifier = Modifier.padding(top = 24.dp)) {
-                Text("Share / Receive")
+            GradientAppTitle("AirFlux")
+            Text(
+                text = "Share files instantly. Download anything.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 40.dp)
+            )
+
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onShareClick() }
+                    .padding(0.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = ElectricCyan)
+                    Text(
+                        "Share / Receive",
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Text(
+                        "Send files over Wi-Fi, no internet needed",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
-            Button(onClick = onDownloadClick, modifier = Modifier.padding(top = 12.dp)) {
-                Text("Download from Link")
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onDownloadClick() }
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan)
+                    Text(
+                        "Download from Link",
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Text(
+                        "Paste a URL, download fast",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
     }
 }
 
-@Composable
-fun SharingPlaceholderScreen() {
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("Sharing")
-        }
-    }
-}
 
 @Composable
 fun DownloaderPlaceholderScreen() {
