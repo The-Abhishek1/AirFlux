@@ -1,7 +1,9 @@
 package com.xcloak.airflux.feature.sharing.ui
 
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,15 +39,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xcloak.airflux.core.common.FileUtils
+import com.xcloak.airflux.core.common.QrUtils
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.domain.model.SelectedFile
@@ -59,10 +66,11 @@ import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
 
 @Composable
-fun SharingHomeScreen(viewModel: SharingViewModel = viewModel()) {
+fun SendScreen(viewModel: SharingViewModel = viewModel()) {
     val context = LocalContext.current
     val files by viewModel.selectedFiles.collectAsState()
     val serverStatus by viewModel.serverStatus.collectAsState()
+    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -101,36 +109,38 @@ fun SharingHomeScreen(viewModel: SharingViewModel = viewModel()) {
             Spacer(modifier = Modifier.height(16.dp))
 
             GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     when (val status = serverStatus) {
                         is ServerStatus.Stopped -> {
                             Text("Not sharing", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
                         }
                         is ServerStatus.Running -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.Wifi,
-                                    contentDescription = null,
-                                    tint = SuccessGreen,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    "  Sharing live",
-                                    color = SuccessGreen,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                                Icon(Icons.Default.Wifi, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
+                                Text("  Sharing live", color = SuccessGreen, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Text(status.url, color = TextPrimary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 4.dp))
+
+                            if (qrBitmap == null) {
+                                qrBitmap = QrUtils.generateQrBitmap(status.url)
+                            }
+                            qrBitmap?.let { bmp ->
+                                Box(
+                                    modifier = Modifier
+                                        .padding(top = 16.dp)
+                                        .size(180.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(bitmap = bmp.asImageBitmap(), contentDescription = "QR code", modifier = Modifier.size(160.dp))
+                                }
                             }
                             Text(
-                                status.url,
-                                color = TextPrimary,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                            Text(
-                                "Open this address in a browser on another device on the same Wi-Fi",
+                                "Scan with AirFlux's Receive screen",
                                 color = TextMuted,
                                 style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 4.dp)
+                                modifier = Modifier.padding(top = 8.dp)
                             )
                         }
                         is ServerStatus.Error -> {
@@ -142,18 +152,19 @@ fun SharingHomeScreen(viewModel: SharingViewModel = viewModel()) {
 
                     Button(
                         onClick = {
-                            if (serverStatus is ServerStatus.Running) viewModel.stopServer()
-                            else viewModel.startServer()
+                            if (serverStatus is ServerStatus.Running) {
+                                viewModel.stopServer()
+                                qrBitmap = null
+                            } else {
+                                viewModel.startServer()
+                            }
                         },
                         enabled = files.isNotEmpty() || serverStatus is ServerStatus.Running,
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            if (serverStatus is ServerStatus.Running) "Stop Sharing" else "Start Sharing",
-                            color = Color.Black
-                        )
+                        Text(if (serverStatus is ServerStatus.Running) "Stop Sharing" else "Start Sharing", color = Color.Black)
                     }
                 }
             }
@@ -193,20 +204,9 @@ private fun FileRow(file: SelectedFile, onRemove: () -> Unit) {
                 tint = ElectricCyan,
                 modifier = Modifier.size(28.dp)
             )
-            Column(
-                modifier = Modifier.weight(1f).padding(start = 14.dp)
-            ) {
-                Text(
-                    file.name,
-                    color = TextPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1
-                )
-                Text(
-                    FileUtils.formatSize(file.sizeBytes),
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodySmall
-                )
+            Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
+                Text(file.name, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text(FileUtils.formatSize(file.sizeBytes), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
             IconButton(onClick = onRemove) {
                 Icon(Icons.Default.Close, contentDescription = "Remove", tint = TextMuted)

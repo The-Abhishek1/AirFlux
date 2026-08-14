@@ -11,7 +11,7 @@ import com.xcloak.airflux.domain.model.SelectedFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.IOException
+import kotlinx.coroutines.launch
 
 sealed class ServerStatus {
     object Stopped : ServerStatus()
@@ -20,10 +20,6 @@ sealed class ServerStatus {
 }
 
 class SharingViewModel(application: Application) : AndroidViewModel(application) {
-
-    companion object {
-        const val PORT = 8080
-    }
 
     private val _selectedFiles = MutableStateFlow<List<SelectedFile>>(emptyList())
     val selectedFiles: StateFlow<List<SelectedFile>> = _selectedFiles.asStateFlow()
@@ -34,16 +30,12 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
     private var server: LocalFileServer? = null
 
     fun addFiles(context: Context, uris: List<Uri>) {
-        val resolved = uris.mapNotNull { FileUtils.resolveSelectedFile(context, it) }
-        _selectedFiles.value = _selectedFiles.value + resolved
+        val newFiles = uris.mapNotNull { FileUtils.resolveSelectedFile(context, it) }
+        _selectedFiles.value = _selectedFiles.value + newFiles
     }
 
     fun removeFile(file: SelectedFile) {
-        _selectedFiles.value = _selectedFiles.value.filter { it.uri != file.uri }
-    }
-
-    fun clearAll() {
-        _selectedFiles.value = emptyList()
+        _selectedFiles.value = _selectedFiles.value - file
     }
 
     fun startServer() {
@@ -51,21 +43,20 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
 
         val ip = NetworkUtils.getLocalIpAddress()
         if (ip == null) {
-            _serverStatus.value = ServerStatus.Error("No Wi-Fi connection detected")
+            _serverStatus.value = ServerStatus.Error("No Wi-Fi connection found")
             return
         }
 
         try {
-            val newServer = LocalFileServer(
-                context = getApplication(),
-                port = PORT,
-                filesProvider = { _selectedFiles.value }
-            )
-            newServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-            server = newServer
-            _serverStatus.value = ServerStatus.Running("http://$ip:$PORT")
-        } catch (e: IOException) {
+            val port = 8080
+            server = LocalFileServer(getApplication(), port) {
+                _selectedFiles.value
+            }
+            server?.start()
+            _serverStatus.value = ServerStatus.Running("http://$ip:$port")
+        } catch (e: Exception) {
             _serverStatus.value = ServerStatus.Error(e.message ?: "Failed to start server")
+            server = null
         }
     }
 

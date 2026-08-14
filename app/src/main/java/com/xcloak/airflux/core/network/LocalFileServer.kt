@@ -15,15 +15,25 @@ class LocalFileServer(
         val uri = session.uri
         return when {
             uri == "/" -> serveFileListPage()
+            uri == "/files.json" -> serveFileListJson()
             uri.startsWith("/file/") -> serveFile(uri.removePrefix("/file/"))
             else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
         }
     }
 
+    private fun serveFileListJson(): Response {
+        val files = filesProvider()
+        val json = files.mapIndexed { index, file ->
+            """{"index":$index,"name":"${escapeJson(file.name)}","size":${file.sizeBytes},"mimeType":"${file.mimeType}"}"""
+        }.joinToString(",", prefix = "[", postfix = "]")
+
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json)
+    }
+
     private fun serveFileListPage(): Response {
         val files = filesProvider()
         val rows = files.mapIndexed { index, file ->
-            """<li><a href="/file/$index">${escapeHtml(file.name)}</a> 
+            """<li><a href="/file/$index">${escapeHtml(file.name)}</a>
                (${formatSize(file.sizeBytes)})</li>"""
         }.joinToString("\n")
 
@@ -66,6 +76,9 @@ class LocalFileServer(
 
     private fun escapeHtml(text: String): String =
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    private fun escapeJson(text: String): String =
+        text.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private fun sanitizeFilename(name: String): String =
         name.replace(Regex("[/\\\\]"), "_")

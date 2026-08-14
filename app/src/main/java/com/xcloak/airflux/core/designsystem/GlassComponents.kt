@@ -4,12 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -24,7 +25,8 @@ import com.xcloak.airflux.ui.theme.GlassWhite
 import com.xcloak.airflux.ui.theme.MidnightBlue
 import com.xcloak.airflux.ui.theme.TextPrimary
 
-/** Full-screen gradient backdrop with soft ambient glow — use as the root of every screen. */
+/** Full-screen gradient backdrop with soft ambient glow — use as the root of every screen.
+ *  Applies status bar + navigation bar padding so content never draws under system UI. */
 @Composable
 fun AppBackground(content: @Composable () -> Unit) {
     Box(
@@ -48,12 +50,18 @@ fun AppBackground(content: @Composable () -> Unit) {
                     )
                 )
         )
-        content()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            content()
+        }
     }
 }
 
-/** Reusable frosted-glass card. Blur only renders on API 31+; below that it falls back
- *  to a clean translucent card, which still looks intentional. */
+/** Reusable frosted-glass card. */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,

@@ -3,8 +3,16 @@ package com.xcloak.airflux.navigation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,22 +24,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.core.designsystem.GradientAppTitle
+import com.xcloak.airflux.feature.sharing.ui.ReceiveScreen
+import com.xcloak.airflux.feature.sharing.ui.SendScreen
 import com.xcloak.airflux.ui.theme.ElectricCyan
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
-import com.xcloak.airflux.feature.sharing.ui.SharingHomeScreen
+
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = "home") {
@@ -44,7 +45,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
 
         navigation(startDestination = "sharing_home", route = "sharing_graph") {
-            composable("sharing_home") { SharingHomeScreen() }
+            composable("sharing_home") {
+                SharingModePicker(
+                    onSendClick = { navController.navigate("sharing_send") },
+                    onReceiveClick = { navController.navigate("sharing_receive") }
+                )
+            }
+            composable("sharing_send") { SendScreen() }
+            composable("sharing_receive") { ReceiveScreen() }
         }
 
         navigation(startDestination = "downloader_home", route = "downloader_graph") {
@@ -57,9 +65,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
 fun HomeScreen(onShareClick: () -> Unit, onDownloadClick: () -> Unit) {
     AppBackground {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -72,53 +78,60 @@ fun HomeScreen(onShareClick: () -> Unit, onDownloadClick: () -> Unit) {
             )
 
             GlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onShareClick() }
-                    .padding(0.dp)
+                modifier = Modifier.fillMaxWidth().clickable { onShareClick() }
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Icon(Icons.Default.Share, contentDescription = null, tint = ElectricCyan)
-                    Text(
-                        "Share / Receive",
-                        color = TextPrimary,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Text(
-                        "Send files over Wi-Fi, no internet needed",
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text("Share / Receive", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Send files over Wi-Fi, no internet needed", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             GlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onDownloadClick() }
+                modifier = Modifier.fillMaxWidth().clickable { onDownloadClick() }
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan)
-                    Text(
-                        "Download from Link",
-                        color = TextPrimary,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Text(
-                        "Paste a URL, download fast",
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text("Download from Link", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Paste a URL, download fast", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
     }
 }
 
+@Composable
+fun SharingModePicker(onSendClick: () -> Unit, onReceiveClick: () -> Unit) {
+    AppBackground {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Share / Receive", color = TextPrimary, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 32.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onSendClick() }) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = ElectricCyan)
+                    Text("Send", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Choose files and share them from this device", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onReceiveClick() }) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan)
+                    Text("Receive", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Connect to another device and download files", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun DownloaderPlaceholderScreen() {
@@ -126,7 +139,7 @@ fun DownloaderPlaceholderScreen() {
         Column(
             modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.Center as Alignment.Horizontal
         ) {
             Text("Downloader")
         }
