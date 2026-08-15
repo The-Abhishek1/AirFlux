@@ -1,6 +1,9 @@
 package com.xcloak.airflux.feature.sharing.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -23,9 +26,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Image as ImageIcon
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
@@ -119,7 +123,34 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                 Icon(Icons.Default.Wifi, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
                                 Text("  Sharing live", color = SuccessGreen, style = MaterialTheme.typography.bodyMedium)
                             }
-                            Text(status.url, color = TextPrimary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 4.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Text(
+                                    status.url,
+                                    color = TextPrimary,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(ClipboardManager::class.java)
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("AirFlux share link", status.url))
+                                        Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ContentCopy,
+                                        contentDescription = "Copy link",
+                                        tint = ElectricCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
 
                             if (qrBitmap == null) {
                                 qrBitmap = QrUtils.generateQrBitmap(status.url)
@@ -127,7 +158,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                             qrBitmap?.let { bmp ->
                                 Box(
                                     modifier = Modifier
-                                        .padding(top = 16.dp)
+                                        .padding(top = 12.dp)
                                         .size(180.dp)
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(Color.White),
@@ -137,7 +168,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                 }
                             }
                             Text(
-                                "Scan with AirFlux's Receive screen",
+                                "Scan with AirFlux's Receive screen, or share the copied link",
                                 color = TextMuted,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(top = 8.dp)
@@ -216,7 +247,7 @@ private fun FileRow(file: SelectedFile, onRemove: () -> Unit) {
 }
 
 private fun iconForMimeType(mimeType: String): ImageVector = when {
-    mimeType.startsWith("image/") -> Icons.Default.Image
+    mimeType.startsWith("image/") -> ImageIcon
     mimeType.startsWith("video/") -> Icons.Default.Movie
     mimeType.startsWith("audio/") -> Icons.Default.MusicNote
     mimeType == "application/pdf" -> Icons.Default.Description
