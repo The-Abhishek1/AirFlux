@@ -247,7 +247,7 @@ private fun FileRow(file: SelectedFile, onRemove: () -> Unit) {
 }
 
 private fun iconForMimeType(mimeType: String): ImageVector = when {
-    mimeType.startsWith("image/") -> ImageIcon
+    mimeType.startsWith("image/") -> Icons.Default.ImageIcon
     mimeType.startsWith("video/") -> Icons.Default.Movie
     mimeType.startsWith("audio/") -> Icons.Default.MusicNote
     mimeType == "application/pdf" -> Icons.Default.Description

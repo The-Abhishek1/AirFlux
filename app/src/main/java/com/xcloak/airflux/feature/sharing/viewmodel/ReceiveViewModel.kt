@@ -40,6 +40,8 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
 
     private val client = OkHttpClient()
 
+    private val historyRepo = com.xcloak.airflux.data.repository.HistoryRepository(application)
+
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -164,6 +166,10 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
                 else -> TransferStatus.FAILED
             }
             updateProgress(file.index, DownloadProgress(file.index, if (success) 1f else 0f, finalStatus))
+
+            if (finalStatus == TransferStatus.DONE || finalStatus == TransferStatus.FAILED) {
+                historyRepo.record(file.name, file.sizeBytes, file.mimeType, com.xcloak.airflux.data.database.entity.HistoryType.RECEIVED, success)
+            }
 
             processQueue()
         }

@@ -43,6 +43,8 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         .followSslRedirects(true)
         .build()
 
+    private val historyRepo = com.xcloak.airflux.data.repository.HistoryRepository(application)
+
     private val _items = MutableStateFlow<List<UrlDownloadItem>>(emptyList())
     val items: StateFlow<List<UrlDownloadItem>> = _items.asStateFlow()
 
@@ -187,6 +189,10 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             }
             val errorMsg = if (finalStatus == DlStatus.FAILED) "Download failed — check connection and retry" else null
             updateProgress(item.id, DlProgress(if (success) 1f else 0f, finalStatus, errorMessage = errorMsg))
+
+            if (finalStatus == DlStatus.DONE || finalStatus == DlStatus.FAILED) {
+                historyRepo.record(item.fileName, item.sizeBytes, item.mimeType, com.xcloak.airflux.data.database.entity.HistoryType.DOWNLOADED, success)
+            }
 
             if (success) {
                 NotificationHelper.notify(
