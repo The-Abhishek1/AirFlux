@@ -1,16 +1,17 @@
 package com.xcloak.airflux.navigation
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +30,7 @@ import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.core.designsystem.GradientAppTitle
 import com.xcloak.airflux.feature.downloader.ui.DownloaderHomeScreen
 import com.xcloak.airflux.feature.history.ui.HistoryScreen
+import com.xcloak.airflux.feature.settings.ui.SettingsScreen
 import com.xcloak.airflux.feature.sharing.ui.ReceiveScreen
 import com.xcloak.airflux.feature.sharing.ui.SendScreen
 import com.xcloak.airflux.ui.theme.ElectricCyan
@@ -43,11 +45,13 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             HomeScreen(
                 onShareClick = { navController.navigate("sharing_graph") },
                 onDownloadClick = { navController.navigate("downloader_graph") },
-                onHistoryClick = { navController.navigate("history") }
+                onHistoryClick = { navController.navigate("history") },
+                onSettingsClick = { navController.navigate("settings") }
             )
         }
 
         composable("history") { HistoryScreen() }
+        composable("settings") { SettingsScreen() }
 
         navigation(startDestination = "sharing_home", route = "sharing_graph") {
             composable("sharing_home") {
@@ -67,7 +71,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
 }
 
 @Composable
-fun HomeScreen(onShareClick: () -> Unit, onDownloadClick: () -> Unit, onHistoryClick: () -> Unit) {
+fun HomeScreen(
+    onShareClick: () -> Unit,
+    onDownloadClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
     AppBackground {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -107,6 +116,16 @@ fun HomeScreen(onShareClick: () -> Unit, onDownloadClick: () -> Unit, onHistoryC
                     Icon(Icons.Default.History, contentDescription = null, tint = ElectricCyan)
                     Text("History", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
                     Text("View past transfers and downloads", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onSettingsClick() }) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan)
+                    Text("Settings", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Preferences, plan, and app info", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.xcloak.airflux.core.common
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import com.xcloak.airflux.domain.model.SelectedFile
 import kotlin.math.ln
 import kotlin.math.pow
@@ -23,8 +24,13 @@ object FileUtils {
         } ?: return null
 
         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-
         return SelectedFile(uri = uri, name = name, sizeBytes = size, mimeType = mimeType)
+    }
+
+    fun resolveFromDocumentFile(df: DocumentFile): SelectedFile? {
+        val name = df.name ?: return null
+        val mimeType = df.type ?: "application/octet-stream"
+        return SelectedFile(uri = df.uri, name = name, sizeBytes = df.length(), mimeType = mimeType)
     }
 
     fun formatSize(bytes: Long): String {

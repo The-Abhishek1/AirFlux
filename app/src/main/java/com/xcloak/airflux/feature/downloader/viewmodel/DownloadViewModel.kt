@@ -2,13 +2,19 @@ package com.xcloak.airflux.feature.downloader.viewmodel
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xcloak.airflux.core.billing.PlanManager
+import com.xcloak.airflux.core.common.DownloadResult
 import com.xcloak.airflux.core.common.DownloadUtils
+import com.xcloak.airflux.core.common.StorageUtils
 import com.xcloak.airflux.core.common.UrlUtils
+import com.xcloak.airflux.core.network.HttpClientProvider
 import com.xcloak.airflux.core.notification.NotificationHelper
 import com.xcloak.airflux.core.service.DownloadForegroundService
+import com.xcloak.airflux.data.database.entity.HistoryType
+import com.xcloak.airflux.data.repository.HistoryRepository
 import com.xcloak.airflux.domain.model.UrlDownloadItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,27 +24,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.TimeUnit
 
-enum class DlStatus { RESOLVING, QUEUED, DOWNLOADING, DONE, FAILED, CANCELLED }
+enum class DlStatus { RESOLVING, QUEUED, DOWNLOADING, PAUSED, DONE, FAILED, CANCELLED }
 
 data class DlProgress(
     val progress: Float = 0f,
     val status: DlStatus = DlStatus.RESOLVING,
     val speedBytesPerSec: Long = 0,
     val etaSeconds: Long = -1,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val bytesDownloaded: Long = 0
 )
 
 class DownloaderViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val client = com.xcloak.airflux.core.network.HttpClientProvider.client
-
-    private val historyRepo = com.xcloak.airflux.data.repository.HistoryRepository(application)
+    private val client = HttpClientProvider.client
+    private val historyRepo = HistoryRepository(application)
 
     private val _items = MutableStateFlow<List<UrlDownloadItem>>(emptyList())
     val items: StateFlow<List<UrlDownloadItem>> = _items.asStateFlow()
@@ -50,6 +55,11 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     private val activeJobs = mutableMapOf<String, Job>()
     private val pendingQueue = ConcurrentLinkedQueue<UrlDownloadItem>()
     private var activeCount = 0
+
+    private val savedMediaUri = mutableMapOf<String, Uri>()
+    // Unthrottled byte checkpoint — read on pause so resume never duplicates bytes.
+    private val liveBytes = ConcurrentHashMap<String, Long>()
+
     private var serviceRunning = false
 
     fun addDownload(url: String) {
@@ -70,6 +80,11 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             _items.value = _items.value.map { if (it.id == id) item else it }
             enqueue(item)
         }
+    }
+
+    fun addBatch(urls: List<String>) {
+        if (!PlanManager.isPro) return
+        urls.map { it.trim() }.filter { it.startsWith("http") }.forEach { addDownload(it) }
     }
 
     private fun resolveMetadata(url: String): Triple<String, String, Long>? {
@@ -104,7 +119,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun enqueue(item: UrlDownloadItem) {
         if (activeCount < PlanManager.maxConcurrentTransfers()) {
-            startDownload(item)
+            startDownload(item, resumeFromByte = 0)
         } else {
             updateProgress(item.id, DlProgress(status = DlStatus.QUEUED))
             pendingQueue.add(item)
@@ -116,38 +131,73 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         activeJobs[id]?.cancel()
         activeCalls.remove(id)
         activeJobs.remove(id)
+        savedMediaUri.remove(id)
+        liveBytes.remove(id)
         updateProgress(id, DlProgress(status = DlStatus.CANCELLED))
     }
 
+    /** Pauses an in-progress download (Pro only). Keeps the partial file + exact byte offset. */
+    fun pauseDownload(id: String) {
+        if (!PlanManager.isPro) return
+        val current = _progress.value[id] ?: return
+        activeCalls[id]?.cancel()
+        activeJobs[id]?.cancel()
+        activeCalls.remove(id)
+        activeJobs.remove(id)
+        val checkpoint = liveBytes[id] ?: current.bytesDownloaded
+        updateProgress(id, current.copy(status = DlStatus.PAUSED, bytesDownloaded = checkpoint))
+    }
+
+    fun resumeDownload(item: UrlDownloadItem) {
+        if (!PlanManager.isPro) {
+            retryDownload(item)
+            return
+        }
+        val resumeFrom = _progress.value[item.id]?.bytesDownloaded ?: 0L
+        if (activeCount < PlanManager.maxConcurrentTransfers()) {
+            startDownload(item, resumeFromByte = resumeFrom)
+        } else {
+            updateProgress(item.id, DlProgress(status = DlStatus.QUEUED, bytesDownloaded = resumeFrom))
+            pendingQueue.add(item)
+        }
+    }
+
     fun retryDownload(item: UrlDownloadItem) {
+        savedMediaUri.remove(item.id)
+        liveBytes.remove(item.id)
         enqueue(item)
     }
 
-    private fun startDownload(item: UrlDownloadItem) {
-        if (!com.xcloak.airflux.core.common.StorageUtils.hasEnoughSpace(item.sizeBytes)) {
+    private fun startDownload(item: UrlDownloadItem, resumeFromByte: Long) {
+        if (!StorageUtils.hasEnoughSpace(item.sizeBytes)) {
             updateProgress(item.id, DlProgress(status = DlStatus.FAILED, errorMessage = "Not enough storage space"))
             return
         }
+
         activeCount++
         ensureServiceRunning()
-        updateProgress(item.id, DlProgress(status = DlStatus.DOWNLOADING))
+        updateProgress(item.id, DlProgress(status = DlStatus.DOWNLOADING, bytesDownloaded = resumeFromByte))
+        liveBytes[item.id] = resumeFromByte
 
-        val call = DownloadUtils.buildCall(client, item.url)
+        val call = DownloadUtils.buildCall(client, item.url, resumeFromByte)
         activeCalls[item.id] = call
 
         val job = viewModelScope.launch {
-            var lastBytes = 0L
+            var lastBytes = resumeFromByte
             var lastTime = System.currentTimeMillis()
             var lastNotifyTime = 0L
 
-            val success = try {
+            val result = try {
                 withContext(Dispatchers.IO) {
                     DownloadUtils.executeAndSave(
                         context = getApplication(),
                         call = call,
                         fileName = item.fileName,
-                        mimeType = item.mimeType
+                        mimeType = item.mimeType,
+                        existingUri = savedMediaUri[item.id],
+                        resumeFromByte = resumeFromByte
                     ) { bytesRead, totalBytes ->
+                        liveBytes[item.id] = bytesRead
                         val now = System.currentTimeMillis()
                         val elapsed = now - lastTime
                         if (elapsed >= 500) {
@@ -156,7 +206,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                             val remaining = total - bytesRead
                             val eta = if (speed > 0 && total > 0) remaining / speed else -1
                             val progressFraction = if (total > 0) bytesRead.toFloat() / total else 0f
-                            updateProgress(item.id, DlProgress(progressFraction, DlStatus.DOWNLOADING, speed, eta))
+                            updateProgress(item.id, DlProgress(progressFraction, DlStatus.DOWNLOADING, speed, eta, bytesDownloaded = bytesRead))
                             lastBytes = bytesRead
                             lastTime = now
                         }
@@ -173,32 +223,34 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
             } catch (e: Exception) {
-                false
+                DownloadResult(false)
             }
 
             activeCalls.remove(item.id)
             activeJobs.remove(item.id)
             activeCount--
 
-            val wasCancelled = _progress.value[item.id]?.status == DlStatus.CANCELLED
-            val finalStatus = when {
-                wasCancelled -> DlStatus.CANCELLED
-                success -> DlStatus.DONE
-                else -> DlStatus.FAILED
-            }
-            val errorMsg = if (finalStatus == DlStatus.FAILED) "Download failed — check connection and retry" else null
-            updateProgress(item.id, DlProgress(if (success) 1f else 0f, finalStatus, errorMessage = errorMsg))
+            val currentStatus = _progress.value[item.id]?.status
+            val wasCancelled = currentStatus == DlStatus.CANCELLED
+            val wasPaused = currentStatus == DlStatus.PAUSED
 
-            if (finalStatus == DlStatus.DONE || finalStatus == DlStatus.FAILED) {
-                historyRepo.record(item.fileName, item.sizeBytes, item.mimeType, com.xcloak.airflux.data.database.entity.HistoryType.DOWNLOADED, success)
-            }
+            if (result.mediaUri != null) savedMediaUri[item.id] = result.mediaUri
 
-            if (success) {
-                NotificationHelper.notify(
-                    getApplication(),
-                    NotificationHelper.SUMMARY_NOTIFICATION_ID,
-                    NotificationHelper.buildCompleteNotification(getApplication(), item.fileName)
-                )
+            if (!wasCancelled && !wasPaused) {
+                val finalStatus = if (result.success) DlStatus.DONE else DlStatus.FAILED
+                val errorMsg = if (finalStatus == DlStatus.FAILED) "Download failed — check connection and retry" else null
+                updateProgress(item.id, DlProgress(if (result.success) 1f else 0f, finalStatus, errorMessage = errorMsg, bytesDownloaded = result.bytesWritten))
+                liveBytes.remove(item.id)
+
+                historyRepo.record(item.fileName, item.sizeBytes, item.mimeType, HistoryType.DOWNLOADED, result.success)
+
+                if (result.success) {
+                    NotificationHelper.notify(
+                        getApplication(),
+                        NotificationHelper.SUMMARY_NOTIFICATION_ID,
+                        NotificationHelper.buildCompleteNotification(getApplication(), item.fileName)
+                    )
+                }
             }
 
             processQueue()
@@ -210,15 +262,15 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     private fun processQueue() {
         while (activeCount < PlanManager.maxConcurrentTransfers()) {
             val next = pendingQueue.poll() ?: break
-            startDownload(next)
+            val resumeFrom = _progress.value[next.id]?.bytesDownloaded ?: 0L
+            startDownload(next, resumeFrom)
         }
     }
 
     private fun ensureServiceRunning() {
         if (serviceRunning) return
         val context: Application = getApplication()
-        val intent = Intent(context, DownloadForegroundService::class.java)
-        context.startService(intent)
+        context.startService(Intent(context, DownloadForegroundService::class.java))
         serviceRunning = true
     }
 

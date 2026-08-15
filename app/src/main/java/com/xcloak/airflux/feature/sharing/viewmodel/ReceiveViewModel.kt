@@ -4,7 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xcloak.airflux.core.billing.PlanManager
+import com.xcloak.airflux.core.common.DownloadResult
 import com.xcloak.airflux.core.common.DownloadUtils
+import com.xcloak.airflux.core.common.StorageUtils
+import com.xcloak.airflux.core.network.HttpClientProvider
+import com.xcloak.airflux.data.database.entity.HistoryType
+import com.xcloak.airflux.data.repository.HistoryRepository
 import com.xcloak.airflux.domain.model.RemoteFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,7 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -38,9 +42,8 @@ data class DownloadProgress(
 
 class ReceiveViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val client = com.xcloak.airflux.core.network.HttpClientProvider.client
-
-    private val historyRepo = com.xcloak.airflux.data.repository.HistoryRepository(application)
+    private val client = HttpClientProvider.client
+    private val historyRepo = HistoryRepository(application)
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -117,10 +120,11 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun startDownload(file: RemoteFile) {
-        if (!com.xcloak.airflux.core.common.StorageUtils.hasEnoughSpace(file.sizeBytes)) {
+        if (!StorageUtils.hasEnoughSpace(file.sizeBytes)) {
             updateProgress(file.index, DownloadProgress(file.index, 0f, TransferStatus.FAILED))
             return
         }
+
         activeCount++
         updateProgress(file.index, DownloadProgress(file.index, 0f, TransferStatus.DOWNLOADING))
 
@@ -131,7 +135,7 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
             var lastBytes = 0L
             var lastTime = System.currentTimeMillis()
 
-            val success = try {
+            val result = try {
                 withContext(Dispatchers.IO) {
                     DownloadUtils.executeAndSave(
                         context = getApplication(),
@@ -156,7 +160,7 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
             } catch (e: Exception) {
-                false
+                DownloadResult(false)
             }
 
             activeCalls.remove(file.index)
@@ -166,13 +170,13 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
             val wasCancelled = _downloadProgress.value[file.index]?.status == TransferStatus.CANCELLED
             val finalStatus = when {
                 wasCancelled -> TransferStatus.CANCELLED
-                success -> TransferStatus.DONE
+                result.success -> TransferStatus.DONE
                 else -> TransferStatus.FAILED
             }
-            updateProgress(file.index, DownloadProgress(file.index, if (success) 1f else 0f, finalStatus))
+            updateProgress(file.index, DownloadProgress(file.index, if (result.success) 1f else 0f, finalStatus))
 
             if (finalStatus == TransferStatus.DONE || finalStatus == TransferStatus.FAILED) {
-                historyRepo.record(file.name, file.sizeBytes, file.mimeType, com.xcloak.airflux.data.database.entity.HistoryType.RECEIVED, success)
+                historyRepo.record(file.name, file.sizeBytes, file.mimeType, HistoryType.RECEIVED, result.success)
             }
 
             processQueue()

@@ -5,13 +5,26 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import com.xcloak.airflux.core.security.SecurityUtils
 import okhttp3.Call
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+data class DownloadResult(
+    val success: Boolean,
+    val mediaUri: Uri? = null,
+    val bytesWritten: Long = 0,
+    val totalBytes: Long = 0
+)
 
 object DownloadUtils {
 
-    fun buildCall(client: okhttp3.OkHttpClient, url: String): Call {
-        val request = okhttp3.Request.Builder().url(url).build()
-        return client.newCall(request)
+    fun buildCall(client: OkHttpClient, url: String, resumeFromByte: Long = 0): Call {
+        val builder = Request.Builder().url(url)
+        if (resumeFromByte > 0) {
+            builder.header("Range", "bytes=$resumeFromByte-")
+        }
+        return client.newCall(builder.build())
     }
 
     fun executeAndSave(
@@ -19,68 +32,82 @@ object DownloadUtils {
         call: Call,
         fileName: String,
         mimeType: String,
+        existingUri: Uri? = null,
+        resumeFromByte: Long = 0,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
-    ): Boolean {
+    ): DownloadResult {
         call.execute().use { response ->
-            if (!response.isSuccessful) return false
-            val body = response.body ?: return false
-            val totalBytes = body.contentLength()
+            val serverHonoredRange = response.code == 206
+            if (!response.isSuccessful && !serverHonoredRange) return DownloadResult(false)
+            val body = response.body ?: return DownloadResult(false)
 
+            val safeName = SecurityUtils.sanitizeFileName(fileName)
             val resolver = context.contentResolver
             val (collection, relativePath) = collectionFor(mimeType)
 
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, com.xcloak.airflux.core.security.SecurityUtils.sanitizeFileName(fileName))
-                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+            val itemUri: Uri
+            val openMode: String
+            val effectiveResumeFrom: Long
+
+            when {
+                existingUri != null && serverHonoredRange -> {
+                    itemUri = existingUri
+                    openMode = "wa"
+                    effectiveResumeFrom = resumeFromByte
+                }
+                existingUri != null -> {
+                    // Server ignored our Range request — sending file from the start.
+                    // Overwrite the same entry instead of creating a duplicate.
+                    itemUri = existingUri
+                    openMode = "w"
+                    effectiveResumeFrom = 0
+                }
+                else -> {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
+                    }
+                    itemUri = resolver.insert(collection, values) ?: return DownloadResult(false)
+                    openMode = "w"
+                    effectiveResumeFrom = 0
                 }
             }
 
-            val itemUri = resolver.insert(collection, values) ?: return false
+            val contentLength = body.contentLength()
+            val totalBytes = if (effectiveResumeFrom > 0) effectiveResumeFrom + contentLength else contentLength
 
-            resolver.openOutputStream(itemUri)?.use { outputStream ->
+            val outputStream = resolver.openOutputStream(itemUri, openMode) ?: return DownloadResult(false)
+            outputStream.use { out ->
                 body.byteStream().use { inputStream ->
                     val buffer = ByteArray(64 * 1024)
-                    var bytesRead: Long = 0
+                    var bytesRead: Long = effectiveResumeFrom
                     var read: Int
                     while (inputStream.read(buffer).also { read = it } != -1) {
-                        outputStream.write(buffer, 0, read)
+                        out.write(buffer, 0, read)
                         bytesRead += read
                         onProgress(bytesRead, totalBytes)
                     }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val values = ContentValues()
+                        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(itemUri, values, null, null)
+                    }
+                    return DownloadResult(true, itemUri, bytesRead, totalBytes)
                 }
-            } ?: return false
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                values.clear()
-                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                resolver.update(itemUri, values, null, null)
             }
         }
-        return true
     }
 
-    /** Routes by MIME type: videos -> Movies/AirFlux, audio -> Music/AirFlux, everything else -> Download/AirFlux */
     private fun collectionFor(mimeType: String): Pair<Uri, String> {
         return when {
-            mimeType.startsWith("video/") -> {
-                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                uri to "Movies/AirFlux"
-            }
-            mimeType.startsWith("audio/") -> {
-                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                uri to "Music/AirFlux"
-            }
-            mimeType.startsWith("image/") -> {
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI to "Pictures/AirFlux"
-            }
-            else -> {
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI to "Download/AirFlux"
-            }
+            mimeType.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI to "Movies/AirFlux"
+            mimeType.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI to "Music/AirFlux"
+            mimeType.startsWith("image/") -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI to "Pictures/AirFlux"
+            else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI to "Download/AirFlux"
         }
     }
 }

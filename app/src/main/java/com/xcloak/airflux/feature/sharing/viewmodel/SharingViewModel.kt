@@ -2,8 +2,11 @@ package com.xcloak.airflux.feature.sharing.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
+import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.FileUtils
 import com.xcloak.airflux.core.network.LocalFileServer
 import com.xcloak.airflux.core.network.NetworkUtils
@@ -37,6 +40,30 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
     fun addFiles(context: Context, uris: List<Uri>) {
         val resolved = uris.mapNotNull { FileUtils.resolveSelectedFile(context, it) }
         _selectedFiles.value = _selectedFiles.value + resolved
+    }
+
+    /** Adds every file inside a picked folder, recursively (depth-capped). Pro only. */
+    fun addFolder(context: Context, treeUri: Uri) {
+        if (!PlanManager.isPro) return
+
+        try {
+            context.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: SecurityException) { }
+
+        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return
+        val collected = mutableListOf<SelectedFile>()
+        collectFiles(root, collected, depth = 0)
+        _selectedFiles.value = _selectedFiles.value + collected
+    }
+
+    private fun collectFiles(dir: DocumentFile, out: MutableList<SelectedFile>, depth: Int) {
+        if (depth > 5) return
+        dir.listFiles().forEach { child ->
+            when {
+                child.isDirectory -> collectFiles(child, out, depth + 1)
+                child.isFile -> FileUtils.resolveFromDocumentFile(child)?.let { out.add(it) }
+            }
+        }
     }
 
     fun removeFile(file: SelectedFile) {

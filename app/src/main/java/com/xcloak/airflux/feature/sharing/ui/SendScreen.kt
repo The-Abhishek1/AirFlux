@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image as ImageIcon
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -41,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +58,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.FileUtils
 import com.xcloak.airflux.core.common.QrUtils
 import com.xcloak.airflux.core.designsystem.AppBackground
@@ -74,13 +78,16 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
     val context = LocalContext.current
     val files by viewModel.selectedFiles.collectAsState()
     val serverStatus by viewModel.serverStatus.collectAsState()
+    val isPro by PlanManager.isProFlow.collectAsState()
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris ->
-        if (uris.isNotEmpty()) viewModel.addFiles(context, uris)
-    }
+    ) { uris -> if (uris.isNotEmpty()) viewModel.addFiles(context, uris) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri -> if (treeUri != null) viewModel.addFolder(context, treeUri) }
 
     AppBackground {
         Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
@@ -98,15 +105,31 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(ElectricCyan)
-                        .clickable { pickerLauncher.launch("*/*") },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add files", tint = Color.Black)
+                Row {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(if (isPro) ElectricCyan.copy(alpha = 0.9f) else ElectricCyan.copy(alpha = 0.4f))
+                            .clickable {
+                                if (isPro) folderPickerLauncher.launch(null)
+                                else Toast.makeText(context, "Folder transfer is a Pro feature", Toast.LENGTH_SHORT).show()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "Add folder", tint = Color.Black)
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(ElectricCyan)
+                            .clickable { pickerLauncher.launch("*/*") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add files", tint = Color.Black)
+                    }
                 }
             }
 
@@ -124,10 +147,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                 Text("  Sharing live", color = SuccessGreen, style = MaterialTheme.typography.bodyMedium)
                             }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(top = 4.dp)
-                            ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                                 Text(
                                     status.url,
                                     color = TextPrimary,
@@ -143,25 +163,16 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                     },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Default.ContentCopy,
-                                        contentDescription = "Copy link",
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy link", tint = ElectricCyan, modifier = Modifier.size(18.dp))
                                 }
                             }
 
-                            androidx.compose.runtime.LaunchedEffect(status.url) {
+                            LaunchedEffect(status.url) {
                                 qrBitmap = QrUtils.generateQrBitmap(status.url)
                             }
                             qrBitmap?.let { bmp ->
                                 Box(
-                                    modifier = Modifier
-                                        .padding(top = 12.dp)
-                                        .size(180.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color.White),
+                                    modifier = Modifier.padding(top = 12.dp).size(180.dp).clip(RoundedCornerShape(12.dp)).background(Color.White),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Image(bitmap = bmp.asImageBitmap(), contentDescription = "QR code", modifier = Modifier.size(160.dp))
@@ -205,7 +216,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
             if (files.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No files selected yet.\nTap + to choose files to share.",
+                        "No files selected yet.\nTap + to choose files, or the folder icon to share a whole folder (Pro).",
                         color = TextMuted,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 40.dp)
@@ -225,16 +236,8 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
 @Composable
 private fun FileRow(file: SelectedFile, onRemove: () -> Unit) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = iconForMimeType(file.mimeType),
-                contentDescription = null,
-                tint = ElectricCyan,
-                modifier = Modifier.size(28.dp)
-            )
+        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = iconForMimeType(file.mimeType), contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(28.dp))
             Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
                 Text(file.name, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                 Text(FileUtils.formatSize(file.sizeBytes), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
@@ -247,7 +250,7 @@ private fun FileRow(file: SelectedFile, onRemove: () -> Unit) {
 }
 
 private fun iconForMimeType(mimeType: String): ImageVector = when {
-    mimeType.startsWith("image/") -> Icons.Default.ImageIcon
+    mimeType.startsWith("image/") -> ImageIcon
     mimeType.startsWith("video/") -> Icons.Default.Movie
     mimeType.startsWith("audio/") -> Icons.Default.MusicNote
     mimeType == "application/pdf" -> Icons.Default.Description
