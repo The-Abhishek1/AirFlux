@@ -32,6 +32,7 @@ object DownloadUtils {
         call: Call,
         fileName: String,
         mimeType: String,
+        decryptWithToken: String? = null,
         existingUri: Uri? = null,
         resumeFromByte: Long = 0,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
@@ -82,7 +83,11 @@ object DownloadUtils {
 
             val outputStream = resolver.openOutputStream(itemUri, openMode) ?: return DownloadResult(false)
             outputStream.use { out ->
-                body.byteStream().use { inputStream ->
+                val rawStream = body.byteStream()
+                val streamToUse = if (decryptWithToken != null) {
+                    com.xcloak.airflux.core.security.CryptoUtils.wrapInputStream(rawStream, decryptWithToken)
+                } else rawStream
+                streamToUse.use { inputStream ->
                     val buffer = ByteArray(64 * 1024)
                     var bytesRead: Long = effectiveResumeFrom
                     var read: Int

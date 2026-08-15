@@ -42,6 +42,7 @@ data class DownloadProgress(
 
 class ReceiveViewModel(application: Application) : AndroidViewModel(application) {
 
+    private var encryptionEnabled: Boolean = false
     private val client = HttpClientProvider.client
     private val historyRepo = HistoryRepository(application)
 
@@ -60,9 +61,10 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
 
     fun connect(address: String) {
         val full = if (address.startsWith("http")) address else "http://$address"
-        val parts = full.split("?token=")
-        baseUrl = parts[0]
-        sessionToken = parts.getOrNull(1) ?: ""
+        val tokenPart = full.substringAfter("?token=", "")
+        baseUrl = full.substringBefore("?token=")
+        sessionToken = tokenPart.substringBefore("&enc=")
+        encryptionEnabled = tokenPart.contains("&enc=1")
 
         _connectionState.value = ConnectionState.Loading
 
@@ -141,7 +143,8 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
                         context = getApplication(),
                         call = call,
                         fileName = file.name,
-                        mimeType = file.mimeType
+                        mimeType = file.mimeType,
+                        decryptWithToken = if (encryptionEnabled) sessionToken else null
                     ) { bytesRead, totalBytes ->
                         val now = System.currentTimeMillis()
                         val elapsed = now - lastTime

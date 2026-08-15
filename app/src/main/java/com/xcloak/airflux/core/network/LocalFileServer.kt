@@ -11,6 +11,7 @@ class LocalFileServer(
     private val context: Context,
     port: Int,
     private val sessionToken: String,
+    private val encryptionEnabled: Boolean,
     private val filesProvider: () -> List<SelectedFile>
 ) : NanoHTTPD(port) {
 
@@ -72,17 +73,22 @@ class LocalFileServer(
             ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "File not found")
 
         return try {
-            val inputStream = context.contentResolver.openInputStream(file.uri)
+            val rawStream = context.contentResolver.openInputStream(file.uri)
                 ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Could not open file")
+
+            val finalStream = if (encryptionEnabled) {
+                com.xcloak.airflux.core.security.CryptoUtils.wrapInputStream(rawStream, sessionToken)
+            } else rawStream
 
             val response = newFixedLengthResponse(
                 Response.Status.OK,
                 file.mimeType,
-                inputStream,
+                finalStream,
                 file.sizeBytes
             )
             val safeName = SecurityUtils.sanitizeFileName(file.name)
             response.addHeader("Content-Disposition", "attachment; filename=\"$safeName\"")
+            if (encryptionEnabled) response.addHeader("X-AirFlux-Encrypted", "1")
             response
         } catch (e: IOException) {
             newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error reading file")

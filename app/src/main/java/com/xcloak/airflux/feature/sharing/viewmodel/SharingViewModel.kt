@@ -25,6 +25,14 @@ sealed class ServerStatus {
 
 class SharingViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val _encryptionEnabled = MutableStateFlow(false)
+    val encryptionEnabled: StateFlow<Boolean> = _encryptionEnabled.asStateFlow()
+
+    fun setEncryptionEnabled(enabled: Boolean) {
+        if (!PlanManager.isPro) return
+        _encryptionEnabled.value = enabled
+    }
+
     companion object {
         const val PORT = 8080
     }
@@ -89,11 +97,13 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
                 context = getApplication(),
                 port = PORT,
                 sessionToken = token,
+                encryptionEnabled = _encryptionEnabled.value,
                 filesProvider = { _selectedFiles.value }
             )
             newServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             server = newServer
-            _serverStatus.value = ServerStatus.Running("http://$ip:$PORT?token=$token")
+            val encFlag = if (_encryptionEnabled.value) "&enc=1" else ""
+            _serverStatus.value = ServerStatus.Running("http://$ip:$PORT?token=$token$encFlag")
         } catch (e: IOException) {
             _serverStatus.value = ServerStatus.Error(e.message ?: "Failed to start server")
         }

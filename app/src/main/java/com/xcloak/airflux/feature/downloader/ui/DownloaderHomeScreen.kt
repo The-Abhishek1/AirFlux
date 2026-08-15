@@ -59,7 +59,9 @@ import com.xcloak.airflux.ui.theme.TextMuted
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
 import com.xcloak.airflux.ui.theme.WarningAmber
-
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 @Composable
 fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
     var url by remember { mutableStateOf("") }
@@ -114,6 +116,64 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
                             if (showBatchInput) "Hide batch input" else "Paste multiple links (Pro)",
                             color = if (isPro) ElectricCyan else TextMuted
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var showSchedule by remember { mutableStateOf(false) }
+                    var delayMinutes by remember { mutableStateOf("30") }
+                    var wifiOnly by remember { mutableStateOf(true) }
+
+                    TextButton(onClick = { showSchedule = !showSchedule }) {
+                        if (!isPro) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = if (isPro) ElectricCyan else TextMuted, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (showSchedule) "Hide scheduler" else "Schedule this download (Pro)", color = if (isPro) ElectricCyan else TextMuted)
+                    }
+
+                    if (showSchedule) {
+                        if (isPro) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = delayMinutes,
+                                    onValueChange = { delayMinutes = it.filter { c -> c.isDigit() } },
+                                    label = { Text("Start in (minutes)", color = TextMuted) },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary,
+                                        focusedBorderColor = ElectricCyan
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                                Checkbox(checked = wifiOnly, onCheckedChange = { wifiOnly = it }, colors = CheckboxDefaults.colors(checkedColor = ElectricCyan))
+                                Text("Only start on Wi-Fi", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    val mins = delayMinutes.toIntOrNull() ?: 0
+                                    if (url.trim().startsWith("http") && mins > 0) {
+                                        viewModel.scheduleDownload(url.trim(), mins, wifiOnly)
+                                        url = ""
+                                        showSchedule = false
+                                    }
+                                },
+                                enabled = url.trim().startsWith("http"),
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Schedule", color = Color.Black)
+                            }
+                        } else {
+                            Text("Scheduling downloads for later is a Pro feature.", color = TextMuted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                        }
                     }
 
                     if (showBatchInput) {
@@ -177,6 +237,35 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
                             onPause = { viewModel.pauseDownload(item.id) },
                             onResume = { viewModel.resumeDownload(item) }
                         )
+                    }
+                }
+            }
+
+            val scheduledItems by viewModel.scheduled.collectAsState()
+            val pending = scheduledItems.filter { !it.fired }
+            if (pending.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Scheduled", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                pending.forEach { sch ->
+                    GlassCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(sch.url, color = TextPrimary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                Text(
+                                    if (sch.wifiOnly) "Waiting for Wi-Fi" else "Starts soon",
+                                    color = TextMuted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            IconButton(onClick = { viewModel.cancelScheduled(sch.id) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel schedule", tint = ErrorRed)
+                            }
+                        }
                     }
                 }
             }

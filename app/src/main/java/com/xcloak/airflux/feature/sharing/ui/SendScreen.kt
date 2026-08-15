@@ -72,7 +72,9 @@ import com.xcloak.airflux.ui.theme.SuccessGreen
 import com.xcloak.airflux.ui.theme.TextMuted
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
-
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material.icons.filled.Lock
 @Composable
 fun SendScreen(viewModel: SharingViewModel = viewModel()) {
     val context = LocalContext.current
@@ -187,6 +189,31 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                         }
                         is ServerStatus.Error -> {
                             Text(status.message, color = ErrorRed, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    if (serverStatus is ServerStatus.Stopped) {
+                        val encryptionEnabled by viewModel.encryptionEnabled.collectAsState()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!isPro) Icon(Icons.Default.Lock, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                                Text(
+                                    "Encrypt transfer (Pro)",
+                                    color = if (isPro) TextSecondary else TextMuted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                            Switch(
+                                checked = encryptionEnabled,
+                                onCheckedChange = { viewModel.setEncryptionEnabled(it) },
+                                enabled = isPro,
+                                colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                            )
                         }
                     }
 
