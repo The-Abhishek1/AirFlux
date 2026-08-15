@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
@@ -28,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.core.designsystem.GradientAppTitle
+import com.xcloak.airflux.feature.chat.ui.ChatScreen
 import com.xcloak.airflux.feature.downloader.ui.DownloaderHomeScreen
 import com.xcloak.airflux.feature.history.ui.HistoryScreen
 import com.xcloak.airflux.feature.settings.ui.SettingsScreen
@@ -46,12 +48,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onShareClick = { navController.navigate("sharing_graph") },
                 onDownloadClick = { navController.navigate("downloader_graph") },
                 onHistoryClick = { navController.navigate("history") },
-                onSettingsClick = { navController.navigate("settings") }
+                onSettingsClick = { navController.navigate("settings") },
+                onChatClick = { navController.navigate("chat") }
             )
         }
 
         composable("history") { HistoryScreen() }
         composable("settings") { SettingsScreen() }
+        composable("chat") { ChatScreen() }
 
         navigation(startDestination = "sharing_home", route = "sharing_graph") {
             composable("sharing_home") {
@@ -75,7 +79,8 @@ fun HomeScreen(
     onShareClick: () -> Unit,
     onDownloadClick: () -> Unit,
     onHistoryClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onChatClick: () -> Unit
 ) {
     AppBackground {
         Column(
@@ -88,7 +93,7 @@ fun HomeScreen(
                 text = "Share files instantly. Download anything.",
                 color = TextSecondary,
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 8.dp, bottom = 40.dp)
+                modifier = Modifier.padding(top = 8.dp, bottom = 32.dp)
             )
 
             GlassCard(modifier = Modifier.fillMaxWidth().clickable { onShareClick() }) {
@@ -99,7 +104,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             GlassCard(modifier = Modifier.fillMaxWidth().clickable { onDownloadClick() }) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -109,7 +114,17 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onChatClick() }) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.ChatBubble, contentDescription = null, tint = ElectricCyan)
+                    Text("Wi-Fi Chat", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Message a nearby device, no internet needed", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             GlassCard(modifier = Modifier.fillMaxWidth().clickable { onHistoryClick() }) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -119,7 +134,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             GlassCard(modifier = Modifier.fillMaxWidth().clickable { onSettingsClick() }) {
                 Column(modifier = Modifier.padding(20.dp)) {
