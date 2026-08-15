@@ -38,7 +38,7 @@ data class DownloadProgress(
 
 class ReceiveViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val client = OkHttpClient()
+    private val client = com.xcloak.airflux.core.network.HttpClientProvider.client
 
     private val historyRepo = com.xcloak.airflux.data.repository.HistoryRepository(application)
 
@@ -117,6 +117,10 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun startDownload(file: RemoteFile) {
+        if (!com.xcloak.airflux.core.common.StorageUtils.hasEnoughSpace(file.sizeBytes)) {
+            updateProgress(file.index, DownloadProgress(file.index, 0f, TransferStatus.FAILED))
+            return
+        }
         activeCount++
         updateProgress(file.index, DownloadProgress(file.index, 0f, TransferStatus.DOWNLOADING))
 

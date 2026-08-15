@@ -152,7 +152,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                 }
                             }
 
-                            if (qrBitmap == null) {
+                            androidx.compose.runtime.LaunchedEffect(status.url) {
                                 qrBitmap = QrUtils.generateQrBitmap(status.url)
                             }
                             qrBitmap?.let { bmp ->

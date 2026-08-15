@@ -42,7 +42,7 @@ object DownloadUtils {
 
             resolver.openOutputStream(itemUri)?.use { outputStream ->
                 body.byteStream().use { inputStream ->
-                    val buffer = ByteArray(8 * 1024)
+                    val buffer = ByteArray(64 * 1024)
                     var bytesRead: Long = 0
                     var read: Int
                     while (inputStream.read(buffer).also { read = it } != -1) {

@@ -36,12 +36,7 @@ data class DlProgress(
 
 class DownloaderViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val client = com.xcloak.airflux.core.network.HttpClientProvider.client
 
     private val historyRepo = com.xcloak.airflux.data.repository.HistoryRepository(application)
 
@@ -129,6 +124,10 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun startDownload(item: UrlDownloadItem) {
+        if (!com.xcloak.airflux.core.common.StorageUtils.hasEnoughSpace(item.sizeBytes)) {
+            updateProgress(item.id, DlProgress(status = DlStatus.FAILED, errorMessage = "Not enough storage space"))
+            return
+        }
         activeCount++
         ensureServiceRunning()
         updateProgress(item.id, DlProgress(status = DlStatus.DOWNLOADING))
