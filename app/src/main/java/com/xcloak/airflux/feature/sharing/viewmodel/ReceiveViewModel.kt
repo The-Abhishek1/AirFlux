@@ -47,18 +47,23 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
     val downloadProgress: StateFlow<Map<Int, DownloadProgress>> = _downloadProgress.asStateFlow()
 
     private var baseUrl: String = ""
+    private var sessionToken: String = ""
     private val activeCalls = mutableMapOf<Int, Call>()
     private val activeJobs = mutableMapOf<Int, Job>()
     private val pendingQueue = ConcurrentLinkedQueue<RemoteFile>()
     private var activeCount = 0
 
     fun connect(address: String) {
-        baseUrl = if (address.startsWith("http")) address else "http://$address"
+        val full = if (address.startsWith("http")) address else "http://$address"
+        val parts = full.split("?token=")
+        baseUrl = parts[0]
+        sessionToken = parts.getOrNull(1) ?: ""
+
         _connectionState.value = ConnectionState.Loading
 
         viewModelScope.launch {
             try {
-                val files = withContext(Dispatchers.IO) { fetchFileList(baseUrl) }
+                val files = withContext(Dispatchers.IO) { fetchFileList() }
                 _connectionState.value = ConnectionState.Connected(files)
             } catch (e: Exception) {
                 _connectionState.value = ConnectionState.Error(e.message ?: "Failed to connect")
@@ -66,9 +71,10 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun fetchFileList(base: String): List<RemoteFile> {
-        val request = Request.Builder().url("$base/files.json").build()
+    private fun fetchFileList(): List<RemoteFile> {
+        val request = Request.Builder().url("$baseUrl/files.json?token=$sessionToken").build()
         client.newCall(request).execute().use { response ->
+            if (response.code == 401) throw Exception("Invalid or expired session token")
             if (!response.isSuccessful) throw Exception("Server returned ${response.code}")
             val bodyText = response.body?.string() ?: throw Exception("Empty response")
             val array = JSONArray(bodyText)
@@ -112,7 +118,7 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
         activeCount++
         updateProgress(file.index, DownloadProgress(file.index, 0f, TransferStatus.DOWNLOADING))
 
-        val call = DownloadUtils.buildCall(client, "$baseUrl/file/${file.index}")
+        val call = DownloadUtils.buildCall(client, "$baseUrl/file/${file.index}?token=$sessionToken")
         activeCalls[file.index] = call
 
         val job = viewModelScope.launch {

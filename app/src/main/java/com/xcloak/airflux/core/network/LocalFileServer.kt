@@ -1,6 +1,8 @@
 package com.xcloak.airflux.core.network
 
 import android.content.Context
+import com.xcloak.airflux.core.security.RateLimiter
+import com.xcloak.airflux.core.security.SecurityUtils
 import com.xcloak.airflux.domain.model.SelectedFile
 import fi.iki.elonen.NanoHTTPD
 import java.io.IOException
@@ -8,10 +10,23 @@ import java.io.IOException
 class LocalFileServer(
     private val context: Context,
     port: Int,
+    private val sessionToken: String,
     private val filesProvider: () -> List<SelectedFile>
 ) : NanoHTTPD(port) {
 
+    private val rateLimiter = RateLimiter()
+
     override fun serve(session: IHTTPSession): Response {
+        val clientId = try { session.remoteIpAddress } catch (e: Exception) { "unknown" }
+        if (!rateLimiter.allowRequest(clientId)) {
+            return newFixedLengthResponse(Response.Status.TOO_MANY_REQUESTS, MIME_PLAINTEXT, "Too many requests")
+        }
+
+        val token = session.parms["token"]
+        if (token != sessionToken) {
+            return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Invalid or missing session token")
+        }
+
         val uri = session.uri
         return when {
             uri == "/" -> serveFileListPage()
@@ -26,14 +41,13 @@ class LocalFileServer(
         val json = files.mapIndexed { index, file ->
             """{"index":$index,"name":"${escapeJson(file.name)}","size":${file.sizeBytes},"mimeType":"${file.mimeType}"}"""
         }.joinToString(",", prefix = "[", postfix = "]")
-
         return newFixedLengthResponse(Response.Status.OK, "application/json", json)
     }
 
     private fun serveFileListPage(): Response {
         val files = filesProvider()
         val rows = files.mapIndexed { index, file ->
-            """<li><a href="/file/$index">${escapeHtml(file.name)}</a>
+            """<li><a href="/file/$index?token=$sessionToken">${escapeHtml(file.name)}</a>
                (${formatSize(file.sizeBytes)})</li>"""
         }.joinToString("\n")
 
@@ -67,7 +81,8 @@ class LocalFileServer(
                 inputStream,
                 file.sizeBytes
             )
-            response.addHeader("Content-Disposition", "attachment; filename=\"${sanitizeFilename(file.name)}\"")
+            val safeName = SecurityUtils.sanitizeFileName(file.name)
+            response.addHeader("Content-Disposition", "attachment; filename=\"$safeName\"")
             response
         } catch (e: IOException) {
             newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error reading file")
@@ -79,9 +94,6 @@ class LocalFileServer(
 
     private fun escapeJson(text: String): String =
         text.replace("\\", "\\\\").replace("\"", "\\\"")
-
-    private fun sanitizeFilename(name: String): String =
-        name.replace(Regex("[/\\\\]"), "_")
 
     private fun formatSize(bytes: Long): String {
         if (bytes <= 0) return "0 B"

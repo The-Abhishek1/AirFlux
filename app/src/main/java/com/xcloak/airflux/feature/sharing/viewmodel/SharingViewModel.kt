@@ -7,11 +7,12 @@ import androidx.lifecycle.AndroidViewModel
 import com.xcloak.airflux.core.common.FileUtils
 import com.xcloak.airflux.core.network.LocalFileServer
 import com.xcloak.airflux.core.network.NetworkUtils
+import com.xcloak.airflux.core.security.SecurityUtils
 import com.xcloak.airflux.domain.model.SelectedFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import java.io.IOException
 
 sealed class ServerStatus {
     object Stopped : ServerStatus()
@@ -20,6 +21,10 @@ sealed class ServerStatus {
 }
 
 class SharingViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        const val PORT = 8080
+    }
 
     private val _selectedFiles = MutableStateFlow<List<SelectedFile>>(emptyList())
     val selectedFiles: StateFlow<List<SelectedFile>> = _selectedFiles.asStateFlow()
@@ -30,12 +35,16 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
     private var server: LocalFileServer? = null
 
     fun addFiles(context: Context, uris: List<Uri>) {
-        val newFiles = uris.mapNotNull { FileUtils.resolveSelectedFile(context, it) }
-        _selectedFiles.value = _selectedFiles.value + newFiles
+        val resolved = uris.mapNotNull { FileUtils.resolveSelectedFile(context, it) }
+        _selectedFiles.value = _selectedFiles.value + resolved
     }
 
     fun removeFile(file: SelectedFile) {
-        _selectedFiles.value = _selectedFiles.value - file
+        _selectedFiles.value = _selectedFiles.value.filter { it.uri != file.uri }
+    }
+
+    fun clearAll() {
+        _selectedFiles.value = emptyList()
     }
 
     fun startServer() {
@@ -43,20 +52,23 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
 
         val ip = NetworkUtils.getLocalIpAddress()
         if (ip == null) {
-            _serverStatus.value = ServerStatus.Error("No Wi-Fi connection found")
+            _serverStatus.value = ServerStatus.Error("No Wi-Fi connection detected")
             return
         }
 
         try {
-            val port = 8080
-            server = LocalFileServer(getApplication(), port) {
-                _selectedFiles.value
-            }
-            server?.start()
-            _serverStatus.value = ServerStatus.Running("http://$ip:$port")
-        } catch (e: Exception) {
+            val token = SecurityUtils.generateSessionToken()
+            val newServer = LocalFileServer(
+                context = getApplication(),
+                port = PORT,
+                sessionToken = token,
+                filesProvider = { _selectedFiles.value }
+            )
+            newServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            server = newServer
+            _serverStatus.value = ServerStatus.Running("http://$ip:$PORT?token=$token")
+        } catch (e: IOException) {
             _serverStatus.value = ServerStatus.Error(e.message ?: "Failed to start server")
-            server = null
         }
     }
 

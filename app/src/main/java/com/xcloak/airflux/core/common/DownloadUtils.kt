@@ -30,7 +30,7 @@ object DownloadUtils {
             val (collection, relativePath) = collectionFor(mimeType)
 
             val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, com.xcloak.airflux.core.security.SecurityUtils.sanitizeFileName(fileName))
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
