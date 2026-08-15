@@ -38,6 +38,8 @@ import com.xcloak.airflux.feature.sharing.ui.SendScreen
 import com.xcloak.airflux.ui.theme.ElectricCyan
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
+import com.xcloak.airflux.feature.btchat.ui.BtChatScreen
+import androidx.compose.material.icons.filled.Bluetooth
 
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
@@ -49,13 +51,15 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onDownloadClick = { navController.navigate("downloader_graph") },
                 onHistoryClick = { navController.navigate("history") },
                 onSettingsClick = { navController.navigate("settings") },
-                onChatClick = { navController.navigate("chat") }
+                onChatClick = { navController.navigate("chat") },
+                onBtChatClick = { navController.navigate("bt_chat") }
             )
         }
 
         composable("history") { HistoryScreen() }
         composable("settings") { SettingsScreen() }
         composable("chat") { ChatScreen() }
+        composable("bt_chat") { BtChatScreen() }
 
         navigation(startDestination = "sharing_home", route = "sharing_graph") {
             composable("sharing_home") {
@@ -80,8 +84,9 @@ fun HomeScreen(
     onDownloadClick: () -> Unit,
     onHistoryClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onChatClick: () -> Unit
-) {
+    onChatClick: () -> Unit,
+    onBtChatClick: () -> Unit
+){
     AppBackground {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -141,6 +146,16 @@ fun HomeScreen(
                     Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan)
                     Text("Settings", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
                     Text("Preferences, plan, and app info", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onBtChatClick() }) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Bluetooth, contentDescription = null, tint = ElectricCyan)
+                    Text("Bluetooth Chat", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Message nearby, zero network needed", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

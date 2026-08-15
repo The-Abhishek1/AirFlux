@@ -32,8 +32,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         const val CHAT_PORT = 8082
         const val FREE_HISTORY_LIMIT = 50
     }
-
-    private val repo = ChatRepository(application)
+    private val repo = ChatRepository(application, com.xcloak.airflux.data.database.entity.ChatChannel.WIFI)
     private val session = ChatSession(viewModelScope)
 
     private val _connectionState = MutableStateFlow<ChatConnectionState>(ChatConnectionState.Idle)
