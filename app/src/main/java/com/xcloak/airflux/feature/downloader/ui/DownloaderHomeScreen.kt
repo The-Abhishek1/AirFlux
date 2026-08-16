@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -66,9 +67,10 @@ import com.xcloak.airflux.ui.theme.TextMuted
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
 import com.xcloak.airflux.ui.theme.WarningAmber
-
+import com.xcloak.airflux.core.ads.SpeedBoostBanner
+import androidx.navigation.compose.rememberNavController
 @Composable
-fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
+fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: () -> Unit = {}) {
     val context = LocalContext.current
     var url by remember { mutableStateOf("") }
     var showBatchInput by remember { mutableStateOf(false) }
@@ -227,6 +229,9 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            com.xcloak.airflux.core.ads.SpeedBoostBanner(onUpgradeClick = onGoPro)
 
             Spacer(modifier = Modifier.height(16.dp))
 

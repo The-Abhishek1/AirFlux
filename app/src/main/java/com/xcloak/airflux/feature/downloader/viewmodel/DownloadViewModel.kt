@@ -34,7 +34,7 @@ import okhttp3.Request
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-
+import com.xcloak.airflux.core.ads.SpeedBoostManager
 enum class DlStatus { RESOLVING, QUEUED, DOWNLOADING, PAUSED, DONE, FAILED, CANCELLED }
 
 data class DlProgress(
@@ -236,7 +236,8 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                         fileName = item.fileName,
                         mimeType = item.mimeType,
                         existingUri = savedMediaUri[item.id],
-                        resumeFromByte = resumeFromByte
+                        resumeFromByte = resumeFromByte,
+                        throttleBytesPerSec = if (PlanManager.isPro || SpeedBoostManager.isBoostActive()) null else SpeedBoostManager.FREE_TIER_CAP_BYTES_PER_SEC
                     ) { bytesRead, totalBytes ->
                         liveBytes[item.id] = bytesRead
                         val now = System.currentTimeMillis()

@@ -7,8 +7,6 @@ import android.os.Build
 import android.provider.MediaStore
 import com.xcloak.airflux.core.security.SecurityUtils
 import okhttp3.Call
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 data class DownloadResult(
     val success: Boolean,
@@ -19,22 +17,23 @@ data class DownloadResult(
 
 object DownloadUtils {
 
-    fun buildCall(client: OkHttpClient, url: String, resumeFromByte: Long = 0): Call {
-        val builder = Request.Builder().url(url)
+    fun buildCall(client: okhttp3.OkHttpClient, url: String, resumeFromByte: Long = 0): Call {
+        val builder = okhttp3.Request.Builder().url(url)
         if (resumeFromByte > 0) {
             builder.header("Range", "bytes=$resumeFromByte-")
         }
         return client.newCall(builder.build())
     }
 
+    /** throttleBytesPerSec: null or <= 0 means unthrottled (Pro / boost active). */
     fun executeAndSave(
         context: Context,
         call: Call,
         fileName: String,
         mimeType: String,
-        decryptWithToken: String? = null,
         existingUri: Uri? = null,
         resumeFromByte: Long = 0,
+        throttleBytesPerSec: Long? = null,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
     ): DownloadResult {
         call.execute().use { response ->
@@ -57,8 +56,6 @@ object DownloadUtils {
                     effectiveResumeFrom = resumeFromByte
                 }
                 existingUri != null -> {
-                    // Server ignored our Range request — sending file from the start.
-                    // Overwrite the same entry instead of creating a duplicate.
                     itemUri = existingUri
                     openMode = "w"
                     effectiveResumeFrom = 0
@@ -83,18 +80,22 @@ object DownloadUtils {
 
             val outputStream = resolver.openOutputStream(itemUri, openMode) ?: return DownloadResult(false)
             outputStream.use { out ->
-                val rawStream = body.byteStream()
-                val streamToUse = if (decryptWithToken != null) {
-                    com.xcloak.airflux.core.security.CryptoUtils.wrapInputStream(rawStream, decryptWithToken)
-                } else rawStream
-                streamToUse.use { inputStream ->
+                body.byteStream().use { inputStream ->
                     val buffer = ByteArray(64 * 1024)
                     var bytesRead: Long = effectiveResumeFrom
                     var read: Int
                     while (inputStream.read(buffer).also { read = it } != -1) {
+                        val chunkStart = System.currentTimeMillis()
                         out.write(buffer, 0, read)
                         bytesRead += read
                         onProgress(bytesRead, totalBytes)
+
+                        if (throttleBytesPerSec != null && throttleBytesPerSec > 0) {
+                            val expectedMillis = (read * 1000L) / throttleBytesPerSec
+                            val actualMillis = System.currentTimeMillis() - chunkStart
+                            val sleepMillis = expectedMillis - actualMillis
+                            if (sleepMillis > 0) Thread.sleep(sleepMillis)
+                        }
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val values = ContentValues()

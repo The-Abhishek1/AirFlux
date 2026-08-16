@@ -22,6 +22,7 @@ import okhttp3.Call
 import okhttp3.Request
 import org.json.JSONArray
 import java.util.concurrent.ConcurrentLinkedQueue
+import com.xcloak.airflux.core.ads.SpeedBoostManager
 
 sealed class ConnectionState {
     object Idle : ConnectionState()
@@ -144,7 +145,7 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
                         call = call,
                         fileName = file.name,
                         mimeType = file.mimeType,
-                        decryptWithToken = if (encryptionEnabled) sessionToken else null
+                        throttleBytesPerSec = if (PlanManager.isPro || SpeedBoostManager.isBoostActive()) null else SpeedBoostManager.FREE_TIER_CAP_BYTES_PER_SEC
                     ) { bytesRead, totalBytes ->
                         val now = System.currentTimeMillis()
                         val elapsed = now - lastTime

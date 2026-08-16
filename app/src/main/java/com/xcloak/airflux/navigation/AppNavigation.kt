@@ -92,11 +92,11 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 )
             }
             composable("sharing_send") { SendScreen() }
-            composable("sharing_receive") { ReceiveScreen() }
+            composable("sharing_receive") { ReceiveScreen(onGoPro = { navController.navigate("settings") }) }
         }
 
         navigation(startDestination = "downloader_home", route = "downloader_graph") {
-            composable("downloader_home") { DownloaderHomeScreen() }
+            composable("downloader_home") { DownloaderHomeScreen(onGoPro = { navController.navigate("settings") }) }
         }
     }
 }

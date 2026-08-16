@@ -65,7 +65,7 @@ import com.xcloak.airflux.ui.theme.TextSecondary
 import com.xcloak.airflux.ui.theme.WarningAmber
 
 @Composable
-fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel()) {
+fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel(), onGoPro: () -> Unit = {}) {
     val context = LocalContext.current
     var address by remember { mutableStateOf("") }
     val connectionState by viewModel.connectionState.collectAsState()
@@ -141,6 +141,10 @@ fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel()) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            com.xcloak.airflux.core.ads.SpeedBoostBanner(onUpgradeClick = onGoPro)
 
             Spacer(modifier = Modifier.height(16.dp))
 
