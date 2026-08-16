@@ -46,7 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.xcloak.airflux.core.common.OnboardingPrefs
 import com.xcloak.airflux.feature.onboarding.ui.OnboardingScreen
 import com.xcloak.airflux.core.ads.BannerAdView
-
+import androidx.compose.foundation.verticalScroll
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     LaunchedEffect(Unit) {
@@ -109,10 +109,13 @@ fun HomeScreen(
     onSettingsClick: () -> Unit,
     onChatClick: () -> Unit,
     onBtChatClick: () -> Unit
-){
+) {
     AppBackground {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
