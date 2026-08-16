@@ -40,11 +40,33 @@ import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
 import com.xcloak.airflux.feature.btchat.ui.BtChatScreen
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.runtime.LaunchedEffect
+import com.xcloak.airflux.core.common.IncomingShareHolder
+import androidx.compose.ui.platform.LocalContext
+import com.xcloak.airflux.core.common.OnboardingPrefs
+import com.xcloak.airflux.feature.onboarding.ui.OnboardingScreen
 
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
-    NavHost(navController = navController, startDestination = "home") {
+    LaunchedEffect(Unit) {
+        if (IncomingShareHolder.hasPending()) {
+            navController.navigate("sharing_send")
+        }
+    }
 
+    val context = LocalContext.current
+    val startDest = if (OnboardingPrefs.isComplete(context)) "home" else "onboarding"
+
+    NavHost(navController = navController, startDestination = startDest) {
+
+        composable("onboarding") {
+            OnboardingScreen(
+                onComplete = {
+                    OnboardingPrefs.markComplete(context)
+                    navController.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+                }
+            )
+        }
         composable("home") {
             HomeScreen(
                 onShareClick = { navController.navigate("sharing_graph") },
@@ -131,6 +153,16 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onBtChatClick() }) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Icon(Icons.Default.Bluetooth, contentDescription = null, tint = ElectricCyan)
+                    Text("Bluetooth Chat", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                    Text("Message nearby, zero network needed", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             GlassCard(modifier = Modifier.fillMaxWidth().clickable { onHistoryClick() }) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Icon(Icons.Default.History, contentDescription = null, tint = ElectricCyan)
@@ -149,15 +181,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
 
-            GlassCard(modifier = Modifier.fillMaxWidth().clickable { onBtChatClick() }) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Icon(Icons.Default.Bluetooth, contentDescription = null, tint = ElectricCyan)
-                    Text("Bluetooth Chat", color = TextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-                    Text("Message nearby, zero network needed", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-                }
-            }
         }
     }
 }

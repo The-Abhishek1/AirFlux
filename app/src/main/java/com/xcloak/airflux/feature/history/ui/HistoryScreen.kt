@@ -17,7 +17,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.Image as ImageIcon
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
@@ -128,7 +128,7 @@ private fun formatDate(timestamp: Long): String =
     SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(timestamp))
 
 private fun iconForMimeType(mimeType: String): ImageVector = when {
-    mimeType.startsWith("image/") -> Icons.Default.ImageIcon
+    mimeType.startsWith("image/") -> Icons.Default.Image
     mimeType.startsWith("video/") -> Icons.Default.Movie
     mimeType.startsWith("audio/") -> Icons.Default.MusicNote
     mimeType == "application/pdf" -> Icons.Default.Description

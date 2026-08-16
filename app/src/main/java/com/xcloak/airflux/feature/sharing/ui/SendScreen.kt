@@ -31,16 +31,20 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.Image as ImageIcon
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.FileUtils
+import com.xcloak.airflux.core.common.IncomingShareHolder
 import com.xcloak.airflux.core.common.QrUtils
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
@@ -72,16 +77,21 @@ import com.xcloak.airflux.ui.theme.SuccessGreen
 import com.xcloak.airflux.ui.theme.TextMuted
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material.icons.filled.Lock
+
 @Composable
 fun SendScreen(viewModel: SharingViewModel = viewModel()) {
     val context = LocalContext.current
     val files by viewModel.selectedFiles.collectAsState()
     val serverStatus by viewModel.serverStatus.collectAsState()
     val isPro by PlanManager.isProFlow.collectAsState()
+    val connectedCount by viewModel.connectedDeviceCount.collectAsState()
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Picks up files shared into AirFlux from another app (Gallery, Files, WhatsApp, etc.)
+    LaunchedEffect(Unit) {
+        val incoming = IncomingShareHolder.consume()
+        if (incoming.isNotEmpty()) viewModel.addFiles(context, incoming)
+    }
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -123,11 +133,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(ElectricCyan)
-                            .clickable { pickerLauncher.launch("*/*") },
+                        modifier = Modifier.size(48.dp).clip(CircleShape).background(ElectricCyan).clickable { pickerLauncher.launch("*/*") },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Add files", tint = Color.Black)
@@ -149,6 +155,16 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                 Text("  Sharing live", color = SuccessGreen, style = MaterialTheme.typography.bodyMedium)
                             }
 
+                            if (connectedCount > 0) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                    Icon(Icons.Default.People, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
+                                    Text(
+                                        "  $connectedCount device${if (connectedCount == 1) "" else "s"} connected" + if (!isPro) " (free limit: 1)" else "",
+                                        color = ElectricCyan,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                                 Text(
                                     status.url,
@@ -169,9 +185,7 @@ fun SendScreen(viewModel: SharingViewModel = viewModel()) {
                                 }
                             }
 
-                            LaunchedEffect(status.url) {
-                                qrBitmap = QrUtils.generateQrBitmap(status.url)
-                            }
+                            LaunchedEffect(status.url) { qrBitmap = QrUtils.generateQrBitmap(status.url) }
                             qrBitmap?.let { bmp ->
                                 Box(
                                     modifier = Modifier.padding(top = 12.dp).size(180.dp).clip(RoundedCornerShape(12.dp)).background(Color.White),
@@ -277,7 +291,7 @@ private fun FileRow(file: SelectedFile, onRemove: () -> Unit) {
 }
 
 private fun iconForMimeType(mimeType: String): ImageVector = when {
-    mimeType.startsWith("image/") -> Icons.Default.ImageIcon
+    mimeType.startsWith("image/") -> Icons.Default.Image
     mimeType.startsWith("video/") -> Icons.Default.Movie
     mimeType.startsWith("audio/") -> Icons.Default.MusicNote
     mimeType == "application/pdf" -> Icons.Default.Description

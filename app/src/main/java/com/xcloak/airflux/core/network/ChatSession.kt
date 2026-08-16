@@ -13,7 +13,12 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class ChatWireMessage(val text: String, val timestamp: Long)
+data class ChatWireMessage(
+    val text: String,
+    val timestamp: Long,
+    val type: String = "text", // "text" or "image"
+    val imageData: String? = null
+)
 
 class ChatSession(private val scope: CoroutineScope) {
 
@@ -29,7 +34,6 @@ class ChatSession(private val scope: CoroutineScope) {
 
     private val active = AtomicBoolean(false)
 
-    /** Host mode: opens a server socket, waits for exactly one client, verifies the token. */
     fun startHost(port: Int, expectedToken: String) {
         scope.launch(Dispatchers.IO) {
             try {
@@ -58,7 +62,6 @@ class ChatSession(private val scope: CoroutineScope) {
         }
     }
 
-    /** Join mode: connects to a host's IP/port and authenticates with the token. */
     fun startJoin(ip: String, port: Int, token: String) {
         scope.launch(Dispatchers.IO) {
             try {
@@ -88,8 +91,15 @@ class ChatSession(private val scope: CoroutineScope) {
                 val line = r.readLine() ?: break
                 try {
                     val obj = JSONObject(line)
-                    _incoming.emit(ChatWireMessage(obj.getString("text"), obj.getLong("ts")))
-                } catch (e: Exception) { /* skip malformed line */ }
+                    _incoming.emit(
+                        ChatWireMessage(
+                            text = obj.optString("text", ""),
+                            timestamp = obj.getLong("ts"),
+                            type = obj.optString("type", "text"),
+                            imageData = obj.optString("img", null.toString()).takeIf { obj.has("img") }
+                        )
+                    )
+                } catch (e: Exception) { }
             }
         } catch (e: Exception) {
         } finally {
@@ -102,7 +112,17 @@ class ChatSession(private val scope: CoroutineScope) {
         val w = writer ?: return
         scope.launch(Dispatchers.IO) {
             try {
-                val json = JSONObject().put("text", text).put("ts", System.currentTimeMillis())
+                val json = JSONObject().put("text", text).put("ts", System.currentTimeMillis()).put("type", "text")
+                w.println(json.toString())
+            } catch (e: Exception) { }
+        }
+    }
+
+    fun sendImage(base64: String) {
+        val w = writer ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("text", "[Photo]").put("ts", System.currentTimeMillis()).put("type", "image").put("img", base64)
                 w.println(json.toString())
             } catch (e: Exception) { }
         }

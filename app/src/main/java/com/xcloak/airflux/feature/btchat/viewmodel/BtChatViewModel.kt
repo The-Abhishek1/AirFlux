@@ -9,13 +9,17 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xcloak.airflux.core.billing.PlanManager
+import com.xcloak.airflux.core.common.ImageCompressUtils
 import com.xcloak.airflux.core.network.BluetoothChatSession
 import com.xcloak.airflux.data.database.entity.ChatChannel
+import com.xcloak.airflux.data.database.entity.ChatMsgType
 import com.xcloak.airflux.data.repository.ChatRepository
 import com.xcloak.airflux.domain.model.ChatMessage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed class BtConnectionState {
     object Idle : BtConnectionState()
@@ -60,7 +65,7 @@ class BtChatViewModel(application: Application) : AndroidViewModel(application) 
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     val messages: StateFlow<List<ChatMessage>> = repo.getAll()
-        .map { list -> list.map { ChatMessage(it.id, it.text, it.timestamp, it.isMine) } }
+        .map { list -> list.map { ChatMessage(it.id, it.text, it.timestamp, it.isMine, it.type, it.imageData) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val discoveryReceiver = object : BroadcastReceiver() {
@@ -101,7 +106,11 @@ class BtChatViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             session.incoming.collect { wire ->
                 val limit = if (PlanManager.isPro) null else FREE_HISTORY_LIMIT
-                repo.record(wire.text, isMine = false, freeLimit = limit)
+                if (wire.type == "image" && wire.imageData != null) {
+                    repo.record(wire.text, isMine = false, freeLimit = limit, type = ChatMsgType.IMAGE, imageData = wire.imageData)
+                } else {
+                    repo.record(wire.text, isMine = false, freeLimit = limit)
+                }
             }
         }
     }
@@ -147,6 +156,16 @@ class BtChatViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val limit = if (PlanManager.isPro) null else FREE_HISTORY_LIMIT
             repo.record(text, isMine = true, freeLimit = limit)
+        }
+    }
+
+    fun sendImage(uri: Uri) {
+        if (!PlanManager.isPro) return
+        viewModelScope.launch {
+            val base64 = withContext(Dispatchers.IO) { ImageCompressUtils.uriToBase64Jpeg(getApplication(), uri) }
+            if (base64 == null) return@launch
+            session.sendImage(base64)
+            repo.record("[Photo]", isMine = true, freeLimit = null, type = ChatMsgType.IMAGE, imageData = base64)
         }
     }
 

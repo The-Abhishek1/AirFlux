@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Send
@@ -44,13 +47,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xcloak.airflux.core.billing.PlanManager
+import com.xcloak.airflux.core.common.ImageCompressUtils
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
+import com.xcloak.airflux.data.database.entity.ChatMsgType
 import com.xcloak.airflux.domain.model.ChatMessage
 import com.xcloak.airflux.feature.btchat.viewmodel.BtChatViewModel
 import com.xcloak.airflux.feature.btchat.viewmodel.BtConnectionState
@@ -63,8 +69,7 @@ import com.xcloak.airflux.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import androidx.compose.foundation.background
-
+import androidx.compose.ui.platform.LocalContext
 private fun requiredBtPermissions(): Array<String> {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
@@ -173,7 +178,13 @@ fun BtChatScreen(viewModel: BtChatViewModel = viewModel()) {
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    BtChatConversation(messages, onSend = { viewModel.sendMessage(it) }, modifier = Modifier.weight(1f))
+                    BtChatConversation(
+                        messages = messages,
+                        isPro = isPro,
+                        onSend = { viewModel.sendMessage(it) },
+                        onSendImage = { viewModel.sendImage(it) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -266,9 +277,20 @@ private fun DeviceRow(device: BtDeviceInfo, onClick: () -> Unit) {
 }
 
 @Composable
-private fun BtChatConversation(messages: List<ChatMessage>, onSend: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun BtChatConversation(
+    messages: List<ChatMessage>,
+    isPro: Boolean,
+    onSend: (String) -> Unit,
+    onSendImage: (android.net.Uri) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onSendImage(uri)
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -280,6 +302,18 @@ private fun BtChatConversation(messages: List<ChatMessage>, onSend: (String) -> 
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(
+                onClick = {
+                    if (isPro) imagePicker.launch("image/*")
+                    else android.widget.Toast.makeText(context, "Photo sharing is a Pro feature", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Icon(
+                    Icons.Default.AddPhotoAlternate,
+                    contentDescription = "Send photo",
+                    tint = if (isPro) ElectricCyan else TextMuted
+                )
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -309,11 +343,23 @@ private fun BtMessageBubble(msg: ChatMessage) {
         Column(
             modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(bubbleColor).padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text(msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium)
+            if (msg.type == ChatMsgType.IMAGE && msg.imageData != null) {
+                val bmp = remember(msg.imageData) { ImageCompressUtils.base64ToBitmap(msg.imageData) }
+                bmp?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "Shared photo",
+                        modifier = Modifier.size(200.dp).clip(RoundedCornerShape(10.dp))
+                    )
+                }
+            } else {
+                Text(msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium)
+            }
             Text(
                 SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(msg.timestamp)),
                 color = textColor.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
     }

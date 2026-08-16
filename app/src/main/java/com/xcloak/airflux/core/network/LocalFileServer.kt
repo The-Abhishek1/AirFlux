@@ -12,10 +12,13 @@ class LocalFileServer(
     port: Int,
     private val sessionToken: String,
     private val encryptionEnabled: Boolean,
-    private val filesProvider: () -> List<SelectedFile>
+    private val maxReceivers: Int,
+    private val filesProvider: () -> List<SelectedFile>,
+    private val onClientSeen: (String) -> Unit = {}
 ) : NanoHTTPD(port) {
 
     private val rateLimiter = RateLimiter()
+    private val seenClientIps = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     override fun serve(session: IHTTPSession): Response {
         val clientId = try { session.remoteIpAddress } catch (e: Exception) { "unknown" }
@@ -26,6 +29,21 @@ class LocalFileServer(
         val token = session.parms["token"]
         if (token != sessionToken) {
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "Invalid or missing session token")
+        }
+
+        // Enforce receiver cap: a brand-new client IP beyond the limit is rejected outright.
+        // Existing/already-accepted clients keep working normally (repeat requests aren't new devices).
+        val isNewClient = !seenClientIps.contains(clientId)
+        if (isNewClient && seenClientIps.size >= maxReceivers) {
+            return newFixedLengthResponse(
+                Response.Status.FORBIDDEN,
+                MIME_PLAINTEXT,
+                "This share session has reached its device limit. Upgrade to AirFlux Pro for unlimited simultaneous receivers."
+            )
+        }
+        if (isNewClient) {
+            seenClientIps.add(clientId)
+            onClientSeen(clientId)
         }
 
         val uri = session.uri
@@ -80,12 +98,7 @@ class LocalFileServer(
                 com.xcloak.airflux.core.security.CryptoUtils.wrapInputStream(rawStream, sessionToken)
             } else rawStream
 
-            val response = newFixedLengthResponse(
-                Response.Status.OK,
-                file.mimeType,
-                finalStream,
-                file.sizeBytes
-            )
+            val response = newFixedLengthResponse(Response.Status.OK, file.mimeType, finalStream, file.sizeBytes)
             val safeName = SecurityUtils.sanitizeFileName(file.name)
             response.addHeader("Content-Disposition", "attachment; filename=\"$safeName\"")
             if (encryptionEnabled) response.addHeader("X-AirFlux-Encrypted", "1")

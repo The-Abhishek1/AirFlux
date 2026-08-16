@@ -17,7 +17,12 @@ import java.io.PrintWriter
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class BtWireMessage(val text: String, val timestamp: Long)
+data class BtWireMessage(
+    val text: String,
+    val timestamp: Long,
+    val type: String = "text", // "text" or "image"
+    val imageData: String? = null
+)
 
 class BluetoothChatSession(private val scope: CoroutineScope) {
 
@@ -80,7 +85,14 @@ class BluetoothChatSession(private val scope: CoroutineScope) {
                 val line = r.readLine() ?: break
                 try {
                     val obj = JSONObject(line)
-                    _incoming.emit(BtWireMessage(obj.getString("text"), obj.getLong("ts")))
+                    _incoming.emit(
+                        BtWireMessage(
+                            text = obj.optString("text", ""),
+                            timestamp = obj.getLong("ts"),
+                            type = obj.optString("type", "text"),
+                            imageData = if (obj.has("img")) obj.optString("img", null) else null
+                        )
+                    )
                 } catch (e: Exception) { }
             }
         } catch (e: Exception) {
@@ -94,7 +106,17 @@ class BluetoothChatSession(private val scope: CoroutineScope) {
         val w = writer ?: return
         scope.launch(Dispatchers.IO) {
             try {
-                val json = JSONObject().put("text", text).put("ts", System.currentTimeMillis())
+                val json = JSONObject().put("text", text).put("ts", System.currentTimeMillis()).put("type", "text")
+                w.println(json.toString())
+            } catch (e: Exception) { }
+        }
+    }
+
+    fun sendImage(base64: String) {
+        val w = writer ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("text", "[Photo]").put("ts", System.currentTimeMillis()).put("type", "image").put("img", base64)
                 w.println(json.toString())
             } catch (e: Exception) { }
         }

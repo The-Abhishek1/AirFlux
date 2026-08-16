@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 enum class ChatChannel { WIFI, BLUETOOTH }
+enum class ChatMsgType { TEXT, IMAGE }
 
 @Entity(tableName = "chat_messages")
 data class ChatMessageEntity(
@@ -11,5 +12,7 @@ data class ChatMessageEntity(
     val text: String,
     val timestamp: Long,
     val isMine: Boolean,
-    val channel: ChatChannel = ChatChannel.WIFI
+    val channel: ChatChannel = ChatChannel.WIFI,
+    val type: ChatMsgType = ChatMsgType.TEXT,
+    val imageData: String? = null // base64 JPEG, only set when type == IMAGE
 )

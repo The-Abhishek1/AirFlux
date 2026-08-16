@@ -23,7 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
@@ -56,9 +56,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.xcloak.airflux.core.billing.PlanManager
+import com.xcloak.airflux.core.common.ImageCompressUtils
 import com.xcloak.airflux.core.common.QrUtils
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
+import com.xcloak.airflux.data.database.entity.ChatMsgType
 import com.xcloak.airflux.domain.model.ChatMessage
 import com.xcloak.airflux.feature.chat.viewmodel.ChatConnectionState
 import com.xcloak.airflux.feature.chat.viewmodel.ChatViewModel
@@ -71,7 +73,7 @@ import com.xcloak.airflux.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
+import androidx.compose.ui.platform.LocalContext
 @Composable
 fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
     val connectionState by viewModel.connectionState.collectAsState()
@@ -124,7 +126,13 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    ChatConversation(messages, onSend = { viewModel.sendMessage(it) }, modifier = Modifier.weight(1f))
+                    ChatConversation(
+                        messages = messages,
+                        isPro = isPro,
+                        onSend = { viewModel.sendMessage(it) },
+                        onSendImage = { viewModel.sendImage(it) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -209,9 +217,7 @@ private fun IdleChooser(viewModel: ChatViewModel) {
 @Composable
 private fun WaitingHost(hostInfo: String?) {
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(hostInfo) {
-        hostInfo?.let { qrBitmap = QrUtils.generateQrBitmap(it) }
-    }
+    LaunchedEffect(hostInfo) { hostInfo?.let { qrBitmap = QrUtils.generateQrBitmap(it) } }
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,11 +236,21 @@ private fun WaitingHost(hostInfo: String?) {
         }
     }
 }
-
 @Composable
-private fun ChatConversation(messages: List<ChatMessage>, onSend: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun ChatConversation(
+    messages: List<ChatMessage>,
+    isPro: Boolean,
+    onSend: (String) -> Unit,
+    onSendImage: (android.net.Uri) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onSendImage(uri)
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -246,6 +262,18 @@ private fun ChatConversation(messages: List<ChatMessage>, onSend: (String) -> Un
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(
+                onClick = {
+                    if (isPro) imagePicker.launch("image/*")
+                    else android.widget.Toast.makeText(context, "Photo sharing is a Pro feature", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Icon(
+                    Icons.Default.AddPhotoAlternate,
+                    contentDescription = "Send photo",
+                    tint = if (isPro) ElectricCyan else TextMuted
+                )
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -258,14 +286,7 @@ private fun ChatConversation(messages: List<ChatMessage>, onSend: (String) -> Un
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    if (input.isNotBlank()) {
-                        onSend(input.trim())
-                        input = ""
-                    }
-                }
-            ) {
+            IconButton(onClick = { if (input.isNotBlank()) { onSend(input.trim()); input = "" } }) {
                 Icon(Icons.Default.Send, contentDescription = "Send", tint = ElectricCyan)
             }
         }
@@ -280,16 +301,27 @@ private fun MessageBubble(msg: ChatMessage) {
 
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = alignment) {
         Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .background(bubbleColor)
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+            modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(bubbleColor).padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text(msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium)
+            if (msg.type == ChatMsgType.IMAGE && msg.imageData != null) {
+                val bmp = remember(msg.imageData) { ImageCompressUtils.base64ToBitmap(msg.imageData) }
+                bmp?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "Shared photo",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                }
+            } else {
+                Text(msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium)
+            }
             Text(
                 SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(msg.timestamp)),
                 color = textColor.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
     }

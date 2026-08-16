@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 sealed class ServerStatus {
     object Stopped : ServerStatus()
@@ -24,14 +25,6 @@ sealed class ServerStatus {
 }
 
 class SharingViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val _encryptionEnabled = MutableStateFlow(false)
-    val encryptionEnabled: StateFlow<Boolean> = _encryptionEnabled.asStateFlow()
-
-    fun setEncryptionEnabled(enabled: Boolean) {
-        if (!PlanManager.isPro) return
-        _encryptionEnabled.value = enabled
-    }
 
     companion object {
         const val PORT = 8080
@@ -43,17 +36,29 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
     private val _serverStatus = MutableStateFlow<ServerStatus>(ServerStatus.Stopped)
     val serverStatus: StateFlow<ServerStatus> = _serverStatus.asStateFlow()
 
+    private val _encryptionEnabled = MutableStateFlow(false)
+    val encryptionEnabled: StateFlow<Boolean> = _encryptionEnabled.asStateFlow()
+
+    private val _connectedDeviceCount = MutableStateFlow(0)
+    val connectedDeviceCount: StateFlow<Int> = _connectedDeviceCount.asStateFlow()
+
+    // Distinct client IPs seen since sharing started — approximates "devices connected".
+    private val seenClients = ConcurrentHashMap.newKeySet<String>()
+
     private var server: LocalFileServer? = null
+
+    fun setEncryptionEnabled(enabled: Boolean) {
+        if (!PlanManager.isPro) return
+        _encryptionEnabled.value = enabled
+    }
 
     fun addFiles(context: Context, uris: List<Uri>) {
         val resolved = uris.mapNotNull { FileUtils.resolveSelectedFile(context, it) }
         _selectedFiles.value = _selectedFiles.value + resolved
     }
 
-    /** Adds every file inside a picked folder, recursively (depth-capped). Pro only. */
     fun addFolder(context: Context, treeUri: Uri) {
         if (!PlanManager.isPro) return
-
         try {
             context.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (e: SecurityException) { }
@@ -92,13 +97,23 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
         }
 
         try {
+            seenClients.clear()
+            _connectedDeviceCount.value = 0
+
             val token = SecurityUtils.generateSessionToken()
+            val maxReceivers = if (PlanManager.isPro) Int.MAX_VALUE else 1
             val newServer = LocalFileServer(
                 context = getApplication(),
                 port = PORT,
                 sessionToken = token,
                 encryptionEnabled = _encryptionEnabled.value,
-                filesProvider = { _selectedFiles.value }
+                maxReceivers = maxReceivers,
+                filesProvider = { _selectedFiles.value },
+                onClientSeen = { clientIp ->
+                    if (seenClients.add(clientIp)) {
+                        _connectedDeviceCount.value = seenClients.size
+                    }
+                }
             )
             newServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             server = newServer
@@ -112,6 +127,8 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
     fun stopServer() {
         server?.stop()
         server = null
+        seenClients.clear()
+        _connectedDeviceCount.value = 0
         _serverStatus.value = ServerStatus.Stopped
     }
 
