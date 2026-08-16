@@ -45,6 +45,7 @@ import com.xcloak.airflux.core.common.IncomingShareHolder
 import androidx.compose.ui.platform.LocalContext
 import com.xcloak.airflux.core.common.OnboardingPrefs
 import com.xcloak.airflux.feature.onboarding.ui.OnboardingScreen
+import com.xcloak.airflux.core.ads.BannerAdView
 
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
@@ -180,7 +181,8 @@ fun HomeScreen(
                     Text("Preferences, plan, and app info", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
-
+            Spacer(modifier = Modifier.height(20.dp))
+            BannerAdView()
 
         }
     }

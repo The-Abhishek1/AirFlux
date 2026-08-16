@@ -5,9 +5,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.xcloak.airflux.core.ads.InterstitialAdManager
 import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.DownloadResult
 import com.xcloak.airflux.core.common.DownloadUtils
+import com.xcloak.airflux.core.common.NetworkStateUtils
 import com.xcloak.airflux.core.common.StorageUtils
 import com.xcloak.airflux.core.common.UrlUtils
 import com.xcloak.airflux.core.network.HttpClientProvider
@@ -15,10 +17,14 @@ import com.xcloak.airflux.core.notification.NotificationHelper
 import com.xcloak.airflux.core.service.DownloadForegroundService
 import com.xcloak.airflux.data.database.entity.HistoryType
 import com.xcloak.airflux.data.repository.HistoryRepository
+import com.xcloak.airflux.domain.model.ScheduledDownload
 import com.xcloak.airflux.domain.model.UrlDownloadItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -28,9 +34,7 @@ import okhttp3.Request
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import com.xcloak.airflux.core.common.NetworkStateUtils
-import com.xcloak.airflux.domain.model.ScheduledDownload
-import kotlinx.coroutines.delay
+
 enum class DlStatus { RESOLVING, QUEUED, DOWNLOADING, PAUSED, DONE, FAILED, CANCELLED }
 
 data class DlProgress(
@@ -53,19 +57,23 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     private val _progress = MutableStateFlow<Map<String, DlProgress>>(emptyMap())
     val progress: StateFlow<Map<String, DlProgress>> = _progress.asStateFlow()
 
+    private val _scheduled = MutableStateFlow<List<ScheduledDownload>>(emptyList())
+    val scheduled: StateFlow<List<ScheduledDownload>> = _scheduled.asStateFlow()
+
+    // One-shot event: emitted whenever a download completes successfully, so the UI
+    // layer (which has an Activity context) can show an interstitial ad if appropriate.
+    private val _showInterstitialEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val showInterstitialEvent: SharedFlow<Unit> = _showInterstitialEvent
+
     private val activeCalls = mutableMapOf<String, Call>()
     private val activeJobs = mutableMapOf<String, Job>()
     private val pendingQueue = ConcurrentLinkedQueue<UrlDownloadItem>()
     private var activeCount = 0
 
     private val savedMediaUri = mutableMapOf<String, Uri>()
-    // Unthrottled byte checkpoint — read on pause so resume never duplicates bytes.
     private val liveBytes = ConcurrentHashMap<String, Long>()
 
     private var serviceRunning = false
-
-    private val _scheduled = MutableStateFlow<List<ScheduledDownload>>(emptyList())
-    val scheduled: StateFlow<List<ScheduledDownload>> = _scheduled.asStateFlow()
 
     fun addDownload(url: String) {
         if (!UrlUtils.isValidUrl(url)) return
@@ -90,6 +98,34 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     fun addBatch(urls: List<String>) {
         if (!PlanManager.isPro) return
         urls.map { it.trim() }.filter { it.startsWith("http") }.forEach { addDownload(it) }
+    }
+
+    fun scheduleDownload(url: String, delayMinutes: Int, wifiOnly: Boolean) {
+        if (!PlanManager.isPro) return
+        if (!UrlUtils.isValidUrl(url)) return
+
+        val id = UUID.randomUUID().toString()
+        val triggerAt = System.currentTimeMillis() + (delayMinutes * 60_000L)
+        val scheduledItem = ScheduledDownload(id, url, triggerAt, wifiOnly)
+        _scheduled.value = _scheduled.value + scheduledItem
+
+        viewModelScope.launch {
+            val waitMs = triggerAt - System.currentTimeMillis()
+            if (waitMs > 0) delay(waitMs)
+
+            if (wifiOnly) {
+                while (!NetworkStateUtils.isOnWifi(getApplication())) {
+                    delay(15_000)
+                }
+            }
+
+            _scheduled.value = _scheduled.value.map { if (it.id == id) it.copy(fired = true) else it }
+            addDownload(url)
+        }
+    }
+
+    fun cancelScheduled(id: String) {
+        _scheduled.value = _scheduled.value.filter { it.id != id }
     }
 
     private fun resolveMetadata(url: String): Triple<String, String, Long>? {
@@ -141,7 +177,6 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         updateProgress(id, DlProgress(status = DlStatus.CANCELLED))
     }
 
-    /** Pauses an in-progress download (Pro only). Keeps the partial file + exact byte offset. */
     fun pauseDownload(id: String) {
         if (!PlanManager.isPro) return
         val current = _progress.value[id] ?: return
@@ -181,6 +216,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
         activeCount++
         ensureServiceRunning()
+        InterstitialAdManager.preload(getApplication())
         updateProgress(item.id, DlProgress(status = DlStatus.DOWNLOADING, bytesDownloaded = resumeFromByte))
         liveBytes[item.id] = resumeFromByte
 
@@ -255,6 +291,9 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                         NotificationHelper.SUMMARY_NOTIFICATION_ID,
                         NotificationHelper.buildCompleteNotification(getApplication(), item.fileName)
                     )
+                    // Interstitial only fires on a genuinely completed download, never on
+                    // cancel/failure — showing an ad after a failure would feel punitive.
+                    _showInterstitialEvent.tryEmit(Unit)
                 }
             }
 
@@ -288,35 +327,5 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun updateProgress(id: String, progress: DlProgress) {
         _progress.value = _progress.value + (id to progress)
-    }
-
-    fun scheduleDownload(url: String, delayMinutes: Int, wifiOnly: Boolean) {
-        if (!PlanManager.isPro) return
-        if (!UrlUtils.isValidUrl(url)) return
-
-        val id = UUID.randomUUID().toString()
-        val triggerAt = System.currentTimeMillis() + (delayMinutes * 60_000L)
-        val scheduledItem = ScheduledDownload(id, url, triggerAt, wifiOnly)
-        _scheduled.value = _scheduled.value + scheduledItem
-
-        viewModelScope.launch {
-            val waitMs = triggerAt - System.currentTimeMillis()
-            if (waitMs > 0) delay(waitMs)
-
-            if (wifiOnly) {
-                while (!NetworkStateUtils.isOnWifi(getApplication())) {
-                    delay(15_000)
-                }
-            }
-
-            _scheduled.value = _scheduled.value.map { if (it.id == id) it.copy(fired = true) else it }
-            addDownload(url)
-        }
-    }
-
-    fun cancelScheduled(id: String) {
-        _scheduled.value = _scheduled.value.filter { it.id != id }
-        // Note: the coroutine will still fire since it isn't tracked by job here for simplicity;
-        // removing from the list hides it from UI. Good enough for MVP scheduling.
     }
 }

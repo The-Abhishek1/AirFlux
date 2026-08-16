@@ -1,5 +1,6 @@
 package com.xcloak.airflux.feature.downloader.ui
 
+import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,8 +22,11 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +37,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,8 +46,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xcloak.airflux.core.ads.BannerAdView
+import com.xcloak.airflux.core.ads.InterstitialAdManager
 import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.FileUtils
 import com.xcloak.airflux.core.designsystem.AppBackground
@@ -59,17 +66,24 @@ import com.xcloak.airflux.ui.theme.TextMuted
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
 import com.xcloak.airflux.ui.theme.WarningAmber
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
+
 @Composable
 fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
+    val context = LocalContext.current
     var url by remember { mutableStateOf("") }
     var showBatchInput by remember { mutableStateOf(false) }
     var batchText by remember { mutableStateOf("") }
     val items by viewModel.items.collectAsState()
     val progressMap by viewModel.progress.collectAsState()
     val isPro by PlanManager.isProFlow.collectAsState()
+
+    LaunchedEffect(Unit) {
+        InterstitialAdManager.preload(context)
+        viewModel.showInterstitialEvent.collect {
+            val activity = context as? Activity ?: return@collect
+            InterstitialAdManager.showIfReady(activity)
+        }
+    }
 
     AppBackground {
         Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
@@ -116,6 +130,42 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
                             if (showBatchInput) "Hide batch input" else "Paste multiple links (Pro)",
                             color = if (isPro) ElectricCyan else TextMuted
                         )
+                    }
+
+                    if (showBatchInput) {
+                        if (isPro) {
+                            OutlinedTextField(
+                                value = batchText,
+                                onValueChange = { batchText = it },
+                                placeholder = { Text("One link per line", color = TextMuted) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    focusedBorderColor = ElectricCyan
+                                ),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.addBatch(batchText.split("\n"))
+                                    batchText = ""
+                                    showBatchInput = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Add All", color = Color.Black)
+                            }
+                        } else {
+                            Text(
+                                "Batch downloading multiple links at once is a Pro feature.",
+                                color = TextMuted,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -173,42 +223,6 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
                             }
                         } else {
                             Text("Scheduling downloads for later is a Pro feature.", color = TextMuted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
-                        }
-                    }
-
-                    if (showBatchInput) {
-                        if (isPro) {
-                            OutlinedTextField(
-                                value = batchText,
-                                onValueChange = { batchText = it },
-                                placeholder = { Text("One link per line", color = TextMuted) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = TextPrimary,
-                                    unfocusedTextColor = TextPrimary,
-                                    focusedBorderColor = ElectricCyan
-                                ),
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    viewModel.addBatch(batchText.split("\n"))
-                                    batchText = ""
-                                    showBatchInput = false
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Add All", color = Color.Black)
-                            }
-                        } else {
-                            Text(
-                                "Batch downloading multiple links at once is a Pro feature.",
-                                color = TextMuted,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
                         }
                     }
                 }
@@ -269,6 +283,9 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel()) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            BannerAdView()
         }
     }
 }
