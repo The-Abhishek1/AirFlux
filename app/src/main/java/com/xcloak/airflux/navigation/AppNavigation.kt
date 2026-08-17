@@ -44,6 +44,7 @@ import com.xcloak.airflux.core.common.OnboardingPrefs
 import com.xcloak.airflux.core.designsystem.AppBackground
 import com.xcloak.airflux.core.designsystem.GlassCard
 import com.xcloak.airflux.core.designsystem.GradientAppTitle
+import com.xcloak.airflux.core.designsystem.accessibleClickableCard
 import com.xcloak.airflux.feature.btchat.ui.BtChatScreen
 import com.xcloak.airflux.feature.chat.ui.ChatScreen
 import com.xcloak.airflux.feature.downloader.ui.DownloaderHomeScreen
@@ -56,7 +57,7 @@ import com.xcloak.airflux.ui.theme.ElectricCyan
 import com.xcloak.airflux.ui.theme.MidnightBlue
 import com.xcloak.airflux.ui.theme.TextPrimary
 import com.xcloak.airflux.ui.theme.TextSecondary
-
+import com.xcloak.airflux.feature.billing.ui.GoProScreen
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     val context = LocalContext.current
@@ -91,9 +92,10 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
 
         composable("history") { HistoryScreen() }
-        composable("settings") { SettingsScreen() }
+        composable("settings") { SettingsScreen(onGoProClick = { navController.navigate("go_pro") }) }
         composable("chat") { ChatScreen() }
         composable("bt_chat") { BtChatScreen() }
+        composable("go_pro") { GoProScreen() }
 
         navigation(startDestination = "sharing_home", route = "sharing_graph") {
             composable("sharing_home") {
@@ -103,11 +105,11 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 )
             }
             composable("sharing_send") { SendScreen() }
-            composable("sharing_receive") { ReceiveScreen(onGoPro = { navController.navigate("settings") }) }
+            composable("sharing_receive") { ReceiveScreen(onGoPro = { navController.navigate("go_pro") }) }
         }
 
         navigation(startDestination = "downloader_home", route = "downloader_graph") {
-            composable("downloader_home") { DownloaderHomeScreen(onGoPro = { navController.navigate("settings") }) }
+            composable("downloader_home") { DownloaderHomeScreen(onGoPro = { navController.navigate("go_pro") }) }
         }
     }
 }
@@ -137,6 +139,7 @@ fun HomeScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 8.dp, bottom = 28.dp)
             )
+
 
             HomeMenuCard(
                 icon = Icons.Default.Share,
@@ -191,7 +194,6 @@ fun HomeScreen(
         }
     }
 }
-
 @Composable
 private fun HomeMenuCard(
     icon: ImageVector,
@@ -199,7 +201,14 @@ private fun HomeMenuCard(
     description: String,
     onClick: () -> Unit
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .accessibleClickableCard(
+                description = "$title. $description",
+                onClick = onClick
+            )
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
