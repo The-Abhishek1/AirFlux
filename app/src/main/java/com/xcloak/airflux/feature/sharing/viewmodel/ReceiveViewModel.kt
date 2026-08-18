@@ -3,6 +3,7 @@ package com.xcloak.airflux.feature.sharing.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.xcloak.airflux.core.ads.SpeedBoostManager
 import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.DownloadResult
 import com.xcloak.airflux.core.common.DownloadUtils
@@ -22,7 +23,6 @@ import okhttp3.Call
 import okhttp3.Request
 import org.json.JSONArray
 import java.util.concurrent.ConcurrentLinkedQueue
-import com.xcloak.airflux.core.ads.SpeedBoostManager
 
 sealed class ConnectionState {
     object Idle : ConnectionState()
@@ -43,7 +43,6 @@ data class DownloadProgress(
 
 class ReceiveViewModel(application: Application) : AndroidViewModel(application) {
 
-    private var encryptionEnabled: Boolean = false
     private val client = HttpClientProvider.client
     private val historyRepo = HistoryRepository(application)
 
@@ -55,12 +54,25 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
 
     private var baseUrl: String = ""
     private var sessionToken: String = ""
+    private var encryptionEnabled: Boolean = false
     private val activeCalls = mutableMapOf<Int, Call>()
     private val activeJobs = mutableMapOf<Int, Job>()
     private val pendingQueue = ConcurrentLinkedQueue<RemoteFile>()
     private var activeCount = 0
 
     fun connect(address: String) {
+        // Fix: reset everything from any previous session before connecting to a new
+        // one. Without this, reconnecting to a different share that happens to reuse
+        // the same file index as a completed download from before showed a stale
+        // "already downloaded" green check that was never actually downloaded here.
+        activeCalls.values.forEach { it.cancel() }
+        activeJobs.values.forEach { it.cancel() }
+        activeCalls.clear()
+        activeJobs.clear()
+        pendingQueue.clear()
+        activeCount = 0
+        _downloadProgress.value = emptyMap()
+
         val full = if (address.startsWith("http")) address else "http://$address"
         val tokenPart = full.substringAfter("?token=", "")
         baseUrl = full.substringBefore("?token=")
@@ -145,7 +157,8 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
                         call = call,
                         fileName = file.name,
                         mimeType = file.mimeType,
-                        throttleBytesPerSec = if (PlanManager.isPro || SpeedBoostManager.isBoostActive()) null else SpeedBoostManager.FREE_TIER_CAP_BYTES_PER_SEC
+                        throttleBytesPerSec = if (PlanManager.isPro || SpeedBoostManager.isBoostActive()) null else SpeedBoostManager.FREE_TIER_CAP_BYTES_PER_SEC,
+                        decryptWithToken = if (encryptionEnabled) sessionToken else null
                     ) { bytesRead, totalBytes ->
                         val now = System.currentTimeMillis()
                         val elapsed = now - lastTime

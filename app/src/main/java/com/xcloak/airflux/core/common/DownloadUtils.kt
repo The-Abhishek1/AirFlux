@@ -5,8 +5,11 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import com.xcloak.airflux.core.security.CryptoUtils
 import com.xcloak.airflux.core.security.SecurityUtils
 import okhttp3.Call
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 data class DownloadResult(
     val success: Boolean,
@@ -17,15 +20,14 @@ data class DownloadResult(
 
 object DownloadUtils {
 
-    fun buildCall(client: okhttp3.OkHttpClient, url: String, resumeFromByte: Long = 0): Call {
-        val builder = okhttp3.Request.Builder().url(url)
+    fun buildCall(client: OkHttpClient, url: String, resumeFromByte: Long = 0): Call {
+        val builder = Request.Builder().url(url)
         if (resumeFromByte > 0) {
             builder.header("Range", "bytes=$resumeFromByte-")
         }
         return client.newCall(builder.build())
     }
 
-    /** throttleBytesPerSec: null or <= 0 means unthrottled (Pro / boost active). */
     fun executeAndSave(
         context: Context,
         call: Call,
@@ -34,6 +36,7 @@ object DownloadUtils {
         existingUri: Uri? = null,
         resumeFromByte: Long = 0,
         throttleBytesPerSec: Long? = null,
+        decryptWithToken: String? = null,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
     ): DownloadResult {
         call.execute().use { response ->
@@ -80,7 +83,14 @@ object DownloadUtils {
 
             val outputStream = resolver.openOutputStream(itemUri, openMode) ?: return DownloadResult(false)
             outputStream.use { out ->
-                body.byteStream().use { inputStream ->
+                val rawInput = body.byteStream()
+                // This is the fix: without this wrap, an encrypted transfer was being
+                // saved to disk as raw ciphertext instead of decrypted plaintext.
+                val streamToUse = if (decryptWithToken != null) {
+                    CryptoUtils.wrapInputStream(rawInput, decryptWithToken)
+                } else rawInput
+
+                streamToUse.use { inputStream ->
                     val buffer = ByteArray(64 * 1024)
                     var bytesRead: Long = effectiveResumeFrom
                     var read: Int

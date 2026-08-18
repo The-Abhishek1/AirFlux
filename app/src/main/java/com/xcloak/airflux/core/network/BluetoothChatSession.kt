@@ -20,14 +20,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 data class BtWireMessage(
     val text: String,
     val timestamp: Long,
-    val type: String = "text", // "text" or "image"
+    val type: String = "text",
     val imageData: String? = null
 )
 
 class BluetoothChatSession(private val scope: CoroutineScope) {
 
     companion object {
-        // Fixed, well-known UUID for AirFlux's own RFCOMM service — both host and joiner must match.
         val AIRFLUX_UUID: UUID = UUID.fromString("8ce255c0-200a-11e0-ac64-0800200c9a66")
     }
 
@@ -48,7 +47,7 @@ class BluetoothChatSession(private val scope: CoroutineScope) {
             try {
                 val server = adapter.listenUsingRfcommWithServiceRecord("AirFluxChat", AIRFLUX_UUID)
                 serverSocket = server
-                val client = server.accept() // blocks until a device connects
+                val client = server.accept()
                 socket = client
                 server.close()
                 serverSocket = null
@@ -63,9 +62,9 @@ class BluetoothChatSession(private val scope: CoroutineScope) {
     fun startJoin(device: BluetoothDevice, adapter: BluetoothAdapter) {
         scope.launch(Dispatchers.IO) {
             try {
-                adapter.cancelDiscovery() // discovery drastically slows the connection attempt
+                adapter.cancelDiscovery()
                 val client = device.createRfcommSocketToServiceRecord(AIRFLUX_UUID)
-                client.connect() // blocking connect
+                client.connect()
                 socket = client
                 beginStreams(client)
             } catch (e: Exception) {
@@ -117,6 +116,24 @@ class BluetoothChatSession(private val scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             try {
                 val json = JSONObject().put("text", "[Photo]").put("ts", System.currentTimeMillis()).put("type", "image").put("img", base64)
+                w.println(json.toString())
+            } catch (e: Exception) { }
+        }
+    }
+    fun sendVideo(base64: String) {
+        val w = writer ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("text", "[Video]").put("ts", System.currentTimeMillis()).put("type", "video").put("img", base64)
+                w.println(json.toString())
+            } catch (e: Exception) { }
+        }
+    }
+    fun sendAudio(base64: String) {
+        val w = writer ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("text", "[Voice message]").put("ts", System.currentTimeMillis()).put("type", "audio").put("img", base64)
                 w.println(json.toString())
             } catch (e: Exception) { }
         }

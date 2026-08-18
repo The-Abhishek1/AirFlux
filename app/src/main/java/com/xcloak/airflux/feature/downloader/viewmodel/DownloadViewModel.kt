@@ -5,23 +5,30 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.xcloak.airflux.core.ads.InterstitialAdManager
+import com.xcloak.airflux.core.ads.SpeedBoostManager
 import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.DownloadResult
 import com.xcloak.airflux.core.common.DownloadUtils
-import com.xcloak.airflux.core.common.NetworkStateUtils
+import com.xcloak.airflux.core.common.MetadataResolver
 import com.xcloak.airflux.core.common.StorageUtils
 import com.xcloak.airflux.core.common.UrlUtils
 import com.xcloak.airflux.core.network.HttpClientProvider
 import com.xcloak.airflux.core.notification.NotificationHelper
 import com.xcloak.airflux.core.service.DownloadForegroundService
+import com.xcloak.airflux.core.work.ScheduledDownloadWorker
 import com.xcloak.airflux.data.database.entity.HistoryType
 import com.xcloak.airflux.data.repository.HistoryRepository
 import com.xcloak.airflux.domain.model.ScheduledDownload
 import com.xcloak.airflux.domain.model.UrlDownloadItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -30,11 +37,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
-import okhttp3.Request
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import com.xcloak.airflux.core.ads.SpeedBoostManager
+import java.util.concurrent.TimeUnit
+
 enum class DlStatus { RESOLVING, QUEUED, DOWNLOADING, PAUSED, DONE, FAILED, CANCELLED }
 
 data class DlProgress(
@@ -60,8 +67,6 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     private val _scheduled = MutableStateFlow<List<ScheduledDownload>>(emptyList())
     val scheduled: StateFlow<List<ScheduledDownload>> = _scheduled.asStateFlow()
 
-    // One-shot event: emitted whenever a download completes successfully, so the UI
-    // layer (which has an Activity context) can show an interstitial ad if appropriate.
     private val _showInterstitialEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val showInterstitialEvent: SharedFlow<Unit> = _showInterstitialEvent
 
@@ -84,7 +89,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         updateProgress(id, DlProgress(status = DlStatus.RESOLVING))
 
         viewModelScope.launch {
-            val resolved = withContext(Dispatchers.IO) { resolveMetadata(url) }
+            val resolved = withContext(Dispatchers.IO) { MetadataResolver.resolve(client, url) }
             if (resolved == null) {
                 updateProgress(id, DlProgress(status = DlStatus.FAILED, errorMessage = "Could not read file info from this link"))
                 return@launch
@@ -100,6 +105,8 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         urls.map { it.trim() }.filter { it.startsWith("http") }.forEach { addDownload(it) }
     }
 
+    /** Now backed by WorkManager instead of an in-memory delay, so it survives
+     *  leaving this screen, backgrounding the app, and reasonable process death. */
     fun scheduleDownload(url: String, delayMinutes: Int, wifiOnly: Boolean) {
         if (!PlanManager.isPro) return
         if (!UrlUtils.isValidUrl(url)) return
@@ -109,53 +116,31 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         val scheduledItem = ScheduledDownload(id, url, triggerAt, wifiOnly)
         _scheduled.value = _scheduled.value + scheduledItem
 
-        viewModelScope.launch {
-            val waitMs = triggerAt - System.currentTimeMillis()
-            if (waitMs > 0) delay(waitMs)
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+            .build()
 
-            if (wifiOnly) {
-                while (!NetworkStateUtils.isOnWifi(getApplication())) {
-                    delay(15_000)
+        val request = OneTimeWorkRequestBuilder<ScheduledDownloadWorker>()
+            .setInitialDelay(delayMinutes.toLong(), TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .setInputData(workDataOf(ScheduledDownloadWorker.KEY_URL to url))
+            .build()
+
+        val workManager = WorkManager.getInstance(getApplication())
+        workManager.enqueueUniqueWork("scheduled_download_$id", androidx.work.ExistingWorkPolicy.REPLACE, request)
+
+        viewModelScope.launch {
+            workManager.getWorkInfoByIdFlow(request.id).collect { info ->
+                if (info?.state == WorkInfo.State.SUCCEEDED || info?.state == WorkInfo.State.FAILED) {
+                    _scheduled.value = _scheduled.value.map { if (it.id == id) it.copy(fired = true) else it }
                 }
             }
-
-            _scheduled.value = _scheduled.value.map { if (it.id == id) it.copy(fired = true) else it }
-            addDownload(url)
         }
     }
 
     fun cancelScheduled(id: String) {
+        WorkManager.getInstance(getApplication()).cancelUniqueWork("scheduled_download_$id")
         _scheduled.value = _scheduled.value.filter { it.id != id }
-    }
-
-    private fun resolveMetadata(url: String): Triple<String, String, Long>? {
-        try {
-            val headRequest = Request.Builder().url(url).head().build()
-            client.newCall(headRequest).execute().use { response ->
-                if (response.isSuccessful) {
-                    val fileName = UrlUtils.extractFileName(url, response.header("Content-Disposition"))
-                    val mimeType = UrlUtils.guessMimeType(fileName, response.header("Content-Type"))
-                    val size = response.header("Content-Length")?.toLongOrNull() ?: -1L
-                    return Triple(fileName, mimeType, size)
-                }
-            }
-        } catch (e: Exception) { }
-
-        return try {
-            val getRequest = Request.Builder().url(url).header("Range", "bytes=0-0").build()
-            client.newCall(getRequest).execute().use { response ->
-                if (!response.isSuccessful && response.code != 206) return null
-                val fileName = UrlUtils.extractFileName(url, response.header("Content-Disposition"))
-                val mimeType = UrlUtils.guessMimeType(fileName, response.header("Content-Type"))
-                val contentRange = response.header("Content-Range")
-                val size = contentRange?.substringAfterLast('/')?.toLongOrNull()
-                    ?: response.header("Content-Length")?.toLongOrNull()
-                    ?: -1L
-                Triple(fileName, mimeType, size)
-            }
-        } catch (e: Exception) {
-            null
-        }
     }
 
     private fun enqueue(item: UrlDownloadItem) {
@@ -292,8 +277,6 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                         NotificationHelper.SUMMARY_NOTIFICATION_ID,
                         NotificationHelper.buildCompleteNotification(getApplication(), item.fileName)
                     )
-                    // Interstitial only fires on a genuinely completed download, never on
-                    // cancel/failure — showing an ad after a failure would feel punitive.
                     _showInterstitialEvent.tryEmit(Unit)
                 }
             }

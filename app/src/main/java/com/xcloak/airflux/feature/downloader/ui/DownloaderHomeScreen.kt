@@ -212,8 +212,15 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
                                     val mins = delayMinutes.toIntOrNull() ?: 0
                                     if (url.trim().startsWith("http") && mins > 0) {
                                         viewModel.scheduleDownload(url.trim(), mins, wifiOnly)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Download scheduled in $mins minute${if (mins == 1) "" else "s"}",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
                                         url = ""
                                         showSchedule = false
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Enter a valid link and time", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 enabled = url.trim().startsWith("http"),

@@ -1,9 +1,12 @@
 package com.xcloak.airflux.core.common
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 
@@ -11,7 +14,6 @@ object ImageCompressUtils {
     private const val MAX_DIMENSION = 1280
     private const val JPEG_QUALITY = 65
 
-    /** Downscales + compresses to keep chat images small enough to send over a raw socket line. */
     fun uriToBase64Jpeg(context: Context, uri: Uri): String? {
         return try {
             val input = context.contentResolver.openInputStream(uri) ?: return null
@@ -36,6 +38,32 @@ object ImageCompressUtils {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /** Saves a base64-encoded chat photo into Pictures/AirFlux via MediaStore. */
+    fun saveBase64ImageToGallery(context: Context, base64: String): Boolean {
+        return try {
+            val bytes = Base64.decode(base64, Base64.NO_WRAP)
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "AirFlux_${System.currentTimeMillis()}.jpg")
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/AirFlux")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 }

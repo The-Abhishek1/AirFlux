@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 data class ChatWireMessage(
     val text: String,
     val timestamp: Long,
-    val type: String = "text", // "text" or "image"
+    val type: String = "text", // "text", "image", or "audio"
     val imageData: String? = null
 )
 
@@ -96,7 +96,7 @@ class ChatSession(private val scope: CoroutineScope) {
                             text = obj.optString("text", ""),
                             timestamp = obj.getLong("ts"),
                             type = obj.optString("type", "text"),
-                            imageData = obj.optString("img", null.toString()).takeIf { obj.has("img") }
+                            imageData = if (obj.has("img")) obj.optString("img", null) else null
                         )
                     )
                 } catch (e: Exception) { }
@@ -123,6 +123,24 @@ class ChatSession(private val scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             try {
                 val json = JSONObject().put("text", "[Photo]").put("ts", System.currentTimeMillis()).put("type", "image").put("img", base64)
+                w.println(json.toString())
+            } catch (e: Exception) { }
+        }
+    }
+    fun sendVideo(base64: String) {
+        val w = writer ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("text", "[Video]").put("ts", System.currentTimeMillis()).put("type", "video").put("img", base64)
+                w.println(json.toString())
+            } catch (e: Exception) { }
+        }
+    }
+    fun sendAudio(base64: String) {
+        val w = writer ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("text", "[Voice message]").put("ts", System.currentTimeMillis()).put("type", "audio").put("img", base64)
                 w.println(json.toString())
             } catch (e: Exception) { }
         }

@@ -1,5 +1,6 @@
 package com.xcloak.airflux.feature.history.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +23,6 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,7 +67,9 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                         "Clear",
                         color = ElectricCyan,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(8.dp).let { it },
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .clickable { viewModel.clearHistory() }
                     )
                 }
             }

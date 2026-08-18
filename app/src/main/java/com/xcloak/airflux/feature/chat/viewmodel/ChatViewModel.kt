@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
+import com.xcloak.airflux.core.common.VideoUtils
 sealed class ChatConnectionState {
     object Idle : ChatConnectionState()
     object Waiting : ChatConnectionState()
@@ -39,6 +39,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         const val FREE_HISTORY_LIMIT = 50
     }
 
+    private val _sendError = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val sendError: kotlinx.coroutines.flow.SharedFlow<String> = _sendError
     private val repo = ChatRepository(application, ChatChannel.WIFI)
     private val session = ChatSession(viewModelScope)
 
@@ -65,10 +67,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             session.incoming.collect { wire ->
                 val limit = if (PlanManager.isPro) null else FREE_HISTORY_LIMIT
-                if (wire.type == "image" && wire.imageData != null) {
-                    repo.record(wire.text, isMine = false, freeLimit = limit, type = ChatMsgType.IMAGE, imageData = wire.imageData)
-                } else {
-                    repo.record(wire.text, isMine = false, freeLimit = limit)
+                when {
+                    wire.type == "image" && wire.imageData != null ->
+                        repo.record(wire.text, isMine = false, freeLimit = limit, type = ChatMsgType.IMAGE, imageData = wire.imageData)
+                    wire.type == "audio" && wire.imageData != null ->
+                        repo.record(wire.text, isMine = false, freeLimit = limit, type = ChatMsgType.AUDIO, imageData = wire.imageData)
+                    wire.type == "video" && wire.imageData != null ->
+                        repo.record(wire.text, isMine = false, freeLimit = limit, type = ChatMsgType.VIDEO, imageData = wire.imageData)
+                    else ->
+                        repo.record(wire.text, isMine = false, freeLimit = limit)
                 }
             }
         }
@@ -118,6 +125,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendAudio(base64: String) {
+        if (!PlanManager.isPro) return
+        session.sendAudio(base64)
+        viewModelScope.launch {
+            repo.record("[Voice message]", isMine = true, freeLimit = null, type = ChatMsgType.AUDIO, imageData = base64)
+        }
+    }
+    fun sendVideo(uri: Uri) {
+        if (!PlanManager.isPro) return
+        val size = VideoUtils.getSizeBytes(getApplication(), uri)
+        if (size <= 0 || size > VideoUtils.MAX_VIDEO_BYTES) {
+            _sendError.tryEmit("Video must be under 5 MB")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val base64 = withContext(Dispatchers.IO) { VideoUtils.uriToBase64(getApplication(), uri) }
+                if (base64 == null) {
+                    _sendError.tryEmit("Could not send video — file too large or unreadable")
+                    return@launch
+                }
+                withContext(Dispatchers.IO) { session.sendVideo(base64) }
+                repo.record("[Video]", isMine = true, freeLimit = null, type = ChatMsgType.VIDEO, imageData = base64)
+            } catch (e: Throwable) {
+                _sendError.tryEmit("Could not send video — try a smaller file")
+            }
+        }
+    }
     fun clearChat() {
         viewModelScope.launch { repo.clearAll() }
     }
