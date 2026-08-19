@@ -31,7 +31,7 @@ class Converters {
     fun toChatMsgType(value: String): ChatMsgType = ChatMsgType.valueOf(value)
 }
 
-@Database(entities = [HistoryEntity::class, ChatMessageEntity::class], version = 4, exportSchema = false)
+@Database(entities = [HistoryEntity::class, ChatMessageEntity::class], version = 5, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao

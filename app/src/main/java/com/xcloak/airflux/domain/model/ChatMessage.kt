@@ -8,5 +8,5 @@ data class ChatMessage(
     val timestamp: Long,
     val isMine: Boolean,
     val type: ChatMsgType = ChatMsgType.TEXT,
-    val imageData: String? = null
+    val mediaPath: String? = null
 )

@@ -420,8 +420,8 @@ private fun MessageBubble(msg: ChatMessage) {
             modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(bubbleColor).padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             when {
-                msg.type == ChatMsgType.IMAGE && msg.imageData != null -> {
-                    val bmp = remember(msg.imageData) { ImageCompressUtils.base64ToBitmap(msg.imageData) }
+                msg.type == ChatMsgType.IMAGE && msg.mediaPath != null -> {
+                    val bmp = remember(msg.mediaPath) { ImageCompressUtils.pathToBitmap(msg.mediaPath) }
                     bmp?.let {
                         Box {
                             Image(
@@ -432,7 +432,7 @@ private fun MessageBubble(msg: ChatMessage) {
                             IconButton(
                                 onClick = {
                                     scope.launch(Dispatchers.IO) {
-                                        val saved = ImageCompressUtils.saveBase64ImageToGallery(context, msg.imageData)
+                                        val saved = ImageCompressUtils.saveImageFileToGallery(context, msg.mediaPath)
                                         launch(Dispatchers.Main) {
                                             Toast.makeText(
                                                 context,
@@ -454,7 +454,7 @@ private fun MessageBubble(msg: ChatMessage) {
                         }
                     }
                 }
-                msg.type == ChatMsgType.AUDIO && msg.imageData != null -> {
+                msg.type == ChatMsgType.AUDIO && msg.mediaPath != null -> {
                     var isPlaying by remember { mutableStateOf(false) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
@@ -464,7 +464,7 @@ private fun MessageBubble(msg: ChatMessage) {
                                     isPlaying = false
                                 } else {
                                     isPlaying = true
-                                    VoicePlayer.play(context, msg.id, msg.imageData) { isPlaying = false }
+                                    VoicePlayer.playFile(msg.id, msg.mediaPath) { isPlaying = false }
                                 }
                             },
                             modifier = Modifier.size(32.dp)
@@ -478,19 +478,20 @@ private fun MessageBubble(msg: ChatMessage) {
                         Text("Voice message", color = textColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 4.dp))
                     }
                 }
-                msg.type == ChatMsgType.VIDEO && msg.imageData != null -> {
+                msg.type == ChatMsgType.VIDEO && msg.mediaPath != null -> {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clickable {
-                            val uri = com.xcloak.airflux.core.common.VideoUtils.base64ToPlayableUri(context, msg.imageData, msg.id)
-                            if (uri != null) {
+                            val file = java.io.File(msg.mediaPath)
+                            if (file.exists()) {
+                                val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
                                     setDataAndType(uri, "video/mp4")
                                     addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
                                 context.startActivity(intent)
                             } else {
-                                Toast.makeText(context, "Could not open video", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Video file missing", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {

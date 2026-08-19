@@ -8,9 +8,6 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 object VideoUtils {
-    // Lowered from 15MB: base64 encoding adds ~33% overhead, and wrapping that in a
-    // JSONObject + toString() briefly holds multiple full copies in memory at once.
-    // 5MB raw keeps peak memory usage during send well within typical device heap limits.
     const val MAX_VIDEO_BYTES = 5L * 1024 * 1024
 
     fun getSizeBytes(context: Context, uri: Uri): Long {
@@ -30,17 +27,14 @@ object VideoUtils {
                 Base64.encodeToString(input.readBytes(), Base64.NO_WRAP)
             }
         } catch (e: Throwable) {
-            // Throwable, not Exception: catches OutOfMemoryError too, so a too-large
-            // file fails gracefully instead of crashing the whole app.
             null
         }
     }
 
-    fun base64ToPlayableUri(context: Context, base64: String, messageId: Long): Uri? {
+    fun pathToPlayableUri(context: Context, path: String): Uri? {
         return try {
-            val bytes = Base64.decode(base64, Base64.NO_WRAP)
-            val file = File(context.cacheDir, "chat_video_$messageId.mp4")
-            file.writeBytes(bytes)
+            val file = File(path)
+            if (!file.exists()) return null
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         } catch (e: Throwable) {
             null

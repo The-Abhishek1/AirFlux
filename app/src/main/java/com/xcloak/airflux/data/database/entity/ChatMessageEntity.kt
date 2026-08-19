@@ -14,5 +14,5 @@ data class ChatMessageEntity(
     val isMine: Boolean,
     val channel: ChatChannel = ChatChannel.WIFI,
     val type: ChatMsgType = ChatMsgType.TEXT,
-    val imageData: String? = null // generic media payload — holds photo, voice, or video base64
+    val mediaPath: String? = null
 )

@@ -18,8 +18,14 @@ interface ChatDao {
     @Query("SELECT COUNT(*) FROM chat_messages WHERE channel = :channel")
     suspend fun countForChannel(channel: ChatChannel): Int
 
+    @Query("SELECT mediaPath FROM chat_messages WHERE channel = :channel AND mediaPath IS NOT NULL ORDER BY timestamp ASC LIMIT :count")
+    suspend fun getOldestMediaPaths(channel: ChatChannel, count: Int): List<String>
+
     @Query("DELETE FROM chat_messages WHERE channel = :channel AND id IN (SELECT id FROM chat_messages WHERE channel = :channel ORDER BY timestamp ASC LIMIT :count)")
     suspend fun deleteOldestForChannel(channel: ChatChannel, count: Int)
+
+    @Query("SELECT mediaPath FROM chat_messages WHERE channel = :channel AND mediaPath IS NOT NULL")
+    suspend fun getAllMediaPaths(channel: ChatChannel): List<String>
 
     @Query("DELETE FROM chat_messages WHERE channel = :channel")
     suspend fun clearChannel(channel: ChatChannel)

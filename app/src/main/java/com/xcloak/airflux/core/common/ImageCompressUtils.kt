@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Base64
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 object ImageCompressUtils {
     private const val MAX_DIMENSION = 1280
@@ -18,33 +19,26 @@ object ImageCompressUtils {
         return try {
             val input = context.contentResolver.openInputStream(uri) ?: return null
             val original = input.use { BitmapFactory.decodeStream(it) } ?: return null
-
             val scale = minOf(1f, MAX_DIMENSION.toFloat() / maxOf(original.width, original.height))
             val scaled = if (scale < 1f) {
                 Bitmap.createScaledBitmap(original, (original.width * scale).toInt(), (original.height * scale).toInt(), true)
             } else original
-
             val out = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
             Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             null
         }
     }
 
-    fun base64ToBitmap(base64: String): Bitmap? {
-        return try {
-            val bytes = Base64.decode(base64, Base64.NO_WRAP)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } catch (e: Exception) {
-            null
-        }
+    fun pathToBitmap(path: String): Bitmap? {
+        return try { BitmapFactory.decodeFile(path) } catch (e: Throwable) { null }
     }
 
-    /** Saves a base64-encoded chat photo into Pictures/AirFlux via MediaStore. */
-    fun saveBase64ImageToGallery(context: Context, base64: String): Boolean {
+    fun saveImageFileToGallery(context: Context, path: String): Boolean {
         return try {
-            val bytes = Base64.decode(base64, Base64.NO_WRAP)
+            val file = File(path)
+            if (!file.exists()) return false
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, "AirFlux_${System.currentTimeMillis()}.jpg")
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -55,14 +49,14 @@ object ImageCompressUtils {
             }
             val resolver = context.contentResolver
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
-            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return false
+            resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } } ?: return false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.clear()
                 values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
             }
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             false
         }
     }
