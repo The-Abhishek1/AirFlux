@@ -6,6 +6,10 @@ import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -118,42 +122,56 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            when (val state = connectionState) {
-                is ChatConnectionState.Idle -> IdleChooser(viewModel)
-                is ChatConnectionState.Waiting -> WaitingHost(hostInfo)
-                is ChatConnectionState.Connecting -> {
-                    Box(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = ElectricCyan)
+            AnimatedContent(
+                targetState = connectionState,
+                transitionSpec = {
+                    fadeIn() togetherWith fadeOut()
+                },
+                label = "ChatState"
+            ) { state ->
+                when (state) {
+                    is ChatConnectionState.Idle -> IdleChooser(viewModel)
+                    is ChatConnectionState.Waiting -> WaitingHost(hostInfo)
+                    is ChatConnectionState.Connecting -> {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = ElectricCyan)
+                        }
                     }
-                }
-                is ChatConnectionState.Error -> {
-                    Text(state.message, color = ErrorRed, style = MaterialTheme.typography.bodyMedium)
-                }
-                is ChatConnectionState.Disconnected -> {
-                    Text("Peer disconnected", color = TextMuted, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { viewModel.disconnect() }, colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan)) {
-                        Text("Back", color = Color.Black)
+                    is ChatConnectionState.Error -> {
+                        Text(state.message, color = ErrorRed, style = MaterialTheme.typography.bodyMedium)
                     }
-                }
-                is ChatConnectionState.Connected -> {
-                    if (!isPro) {
-                        Text(
-                            "Free plan keeps your last ${ChatViewModel.FREE_HISTORY_LIMIT} messages. Photo and voice sharing require Pro.",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                    is ChatConnectionState.Disconnected -> {
+                        Text("Peer disconnected", color = TextMuted, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.disconnect() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan)
+                        ) {
+                            Text("Back", color = Color.Black)
+                        }
+                    }
+                    is ChatConnectionState.Connected -> {
+                        if (!isPro) {
+                            Text(
+                                "Free plan keeps your last ${ChatViewModel.FREE_HISTORY_LIMIT} messages. Photo and voice sharing require Pro.",
+                                color = TextMuted,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
+                        ChatConversation(
+                            messages = messages,
+                            isPro = isPro,
+                            onSend = { viewModel.sendMessage(it) },
+                            onSendImage = { viewModel.sendImage(it) },
+                            onSendAudio = { viewModel.sendAudio(it) },
+                            onSendVideo = { viewModel.sendVideo(it) },
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
-                    ChatConversation(
-                        messages = messages,
-                        isPro = isPro,
-                        onSend = { viewModel.sendMessage(it) },
-                        onSendImage = { viewModel.sendImage(it) },
-                        onSendAudio = { viewModel.sendAudio(it) },
-                        onSendVideo = { viewModel.sendVideo(it) },
-                        modifier = Modifier.weight(1f)
-                    )
                 }
             }
         }
@@ -165,6 +183,7 @@ private fun IdleChooser(viewModel: ChatViewModel) {
     val context = LocalContext.current
     var joinAddress by remember { mutableStateOf("") }
     var showJoinInput by remember { mutableStateOf(false) }
+    val discoveredDevices by viewModel.discoveredDevices.collectAsState()
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { viewModel.joinChat(it) }
@@ -225,6 +244,33 @@ private fun IdleChooser(viewModel: ChatViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Join", color = Color.Black)
+                }
+            }
+        }
+    }
+
+    if (discoveredDevices.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(20.dp))
+        Text("Nearby Devices", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
+        Spacer(modifier = Modifier.height(10.dp))
+        discoveredDevices.forEach { device ->
+            GlassCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(device.name, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                        Text(device.ip, color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(
+                        onClick = { viewModel.joinChat("${device.ip}:${device.port}?token=${device.token}") },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Connect", color = Color.Black, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
@@ -356,6 +402,18 @@ private fun ChatConversation(
         }
     }
 
+    // Auto-finalize and send if the recorder hits its max duration cap, instead of
+    // leaving the recording running silently past the point MediaRecorder stopped writing.
+    LaunchedEffect(recorder) {
+        recorder.onMaxDurationReached = {
+            if (isRecording) {
+                val base64 = recorder.stopAndGetBase64()
+                isRecording = false
+                if (base64 != null) onSendAudio(base64)
+            }
+        }
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
@@ -464,7 +522,7 @@ private fun MessageBubble(msg: ChatMessage) {
                                     isPlaying = false
                                 } else {
                                     isPlaying = true
-                                    VoicePlayer.playFile(msg.id, msg.mediaPath) { isPlaying = false }
+                                    VoicePlayer.playFile(msg.id, msg.mediaPath, onCompletion = { isPlaying = false })
                                 }
                             },
                             modifier = Modifier.size(32.dp)

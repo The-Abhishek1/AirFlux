@@ -5,7 +5,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object SpeedBoostManager {
-    const val FREE_TIER_CAP_BYTES_PER_SEC = 300L * 1024 // 300 KB/s
+    // Applies to both local Share & Receive transfers and Download-from-Link on the free
+    // tier (see ReceiveViewModel, DownloaderViewModel, and ScheduledDownloadWorker).
+    const val FREE_TIER_CAP_BYTES_PER_SEC = 1L * 1024 * 1024 // 1 MB/s
     const val BOOST_DURATION_MILLIS = 15 * 60 * 1000L // 15 minutes
 
     private val _boostExpiresAt = MutableStateFlow(0L)

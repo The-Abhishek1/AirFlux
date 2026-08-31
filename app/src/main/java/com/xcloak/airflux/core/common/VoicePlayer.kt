@@ -6,22 +6,36 @@ object VoicePlayer {
     private var player: MediaPlayer? = null
     private var currentlyPlayingId: Long? = null
 
-    fun playFile(messageId: Long, path: String, onCompletion: () -> Unit) {
+    /**
+     * Plays a voice message file.
+     *
+     * Uses prepareAsync() instead of the blocking prepare() — the previous synchronous
+     * version ran disk IO + decoder init on whatever thread called playFile(), which in
+     * practice was the Compose onClick (main) thread, risking jank/ANRs on longer
+     * recordings. A genuine failure (corrupt file, unsupported codec, etc.) is now
+     * reported via onError instead of being silently treated as "finished playing".
+     */
+    fun playFile(messageId: Long, path: String, onCompletion: () -> Unit, onError: () -> Unit = onCompletion) {
         stop()
         try {
             player = MediaPlayer().apply {
                 setDataSource(path)
+                setOnPreparedListener { it.start() }
                 setOnCompletionListener {
                     currentlyPlayingId = null
                     onCompletion()
                 }
-                prepare()
-                start()
+                setOnErrorListener { _, _, _ ->
+                    currentlyPlayingId = null
+                    onError()
+                    true
+                }
+                currentlyPlayingId = messageId
+                prepareAsync()
             }
-            currentlyPlayingId = messageId
         } catch (e: Throwable) {
             currentlyPlayingId = null
-            onCompletion()
+            onError()
         }
     }
 

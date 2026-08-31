@@ -13,5 +13,6 @@ data class HistoryEntity(
     val mimeType: String,
     val type: HistoryType,
     val timestamp: Long,
-    val success: Boolean
+    val success: Boolean,
+    val mediaPath: String? = null
 )

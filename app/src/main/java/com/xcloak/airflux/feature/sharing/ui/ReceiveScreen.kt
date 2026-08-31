@@ -159,12 +159,20 @@ fun ReceiveScreen(viewModel: ReceiveViewModel = viewModel(), onGoPro: () -> Unit
                     Text(state.message, color = ErrorRed, style = MaterialTheme.typography.bodyMedium)
                 }
                 is ConnectionState.Connected -> {
-                    Text(
-                        "${state.files.size} file(s) available",
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    ) {
+                        Text(
+                            "${state.files.size} file(s) available",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        IconButton(onClick = { viewModel.refreshFileList() }, modifier = Modifier.height(28.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Check for new files", tint = ElectricCyan)
+                        }
+                    }
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(state.files, key = { it.index }) { file ->
                             RemoteFileRow(

@@ -91,6 +91,27 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Re-fetches the file list from the currently connected session without resetting
+     * download progress or cancelling in-flight transfers. The sender can add files to a
+     * running share session (LocalFileServer reads a live file list), but the receiver
+     * previously had no way to learn about them short of calling connect() again — which
+     * would wipe all progress and force starting over. This lets "sender adds more files"
+     * work without a fresh connection.
+     */
+    fun refreshFileList() {
+        if (baseUrl.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val files = withContext(Dispatchers.IO) { fetchFileList() }
+                _connectionState.value = ConnectionState.Connected(files)
+            } catch (e: Exception) {
+                // Keep showing the last known-good file list; a transient refresh failure
+                // shouldn't blow away an otherwise working session.
+            }
+        }
+    }
+
     private fun fetchFileList(): List<RemoteFile> {
         val request = Request.Builder().url("$baseUrl/files.json?token=$sessionToken").build()
         client.newCall(request).execute().use { response ->
@@ -193,7 +214,7 @@ class ReceiveViewModel(application: Application) : AndroidViewModel(application)
             updateProgress(file.index, DownloadProgress(file.index, if (result.success) 1f else 0f, finalStatus))
 
             if (finalStatus == TransferStatus.DONE || finalStatus == TransferStatus.FAILED) {
-                historyRepo.record(file.name, file.sizeBytes, file.mimeType, HistoryType.RECEIVED, result.success)
+                historyRepo.record(file.name, file.sizeBytes, file.mimeType, HistoryType.RECEIVED, result.success, result.mediaUri?.toString())
             }
 
             processQueue()

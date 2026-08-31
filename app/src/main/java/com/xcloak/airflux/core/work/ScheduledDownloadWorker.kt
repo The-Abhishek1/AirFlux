@@ -53,7 +53,7 @@ class ScheduledDownloadWorker(
             throttleBytesPerSec = throttle
         ) { _, _ -> }
 
-        HistoryRepository(applicationContext).record(fileName, sizeBytes, mimeType, HistoryType.DOWNLOADED, result.success)
+        HistoryRepository(applicationContext).record(fileName, sizeBytes, mimeType, HistoryType.DOWNLOADED, result.success, result.mediaUri?.toString())
 
         if (result.success) {
             NotificationHelper.ensureChannel(applicationContext)

@@ -8,11 +8,13 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import com.xcloak.airflux.data.database.dao.ChatDao
 import com.xcloak.airflux.data.database.dao.HistoryDao
+import com.xcloak.airflux.data.database.dao.ScheduledDownloadDao
 import com.xcloak.airflux.data.database.entity.ChatChannel
 import com.xcloak.airflux.data.database.entity.ChatMessageEntity
 import com.xcloak.airflux.data.database.entity.ChatMsgType
 import com.xcloak.airflux.data.database.entity.HistoryEntity
 import com.xcloak.airflux.data.database.entity.HistoryType
+import com.xcloak.airflux.data.database.entity.ScheduledDownloadEntity
 
 class Converters {
     @TypeConverter
@@ -31,11 +33,16 @@ class Converters {
     fun toChatMsgType(value: String): ChatMsgType = ChatMsgType.valueOf(value)
 }
 
-@Database(entities = [HistoryEntity::class, ChatMessageEntity::class], version = 5, exportSchema = false)
+@Database(
+    entities = [HistoryEntity::class, ChatMessageEntity::class, ScheduledDownloadEntity::class],
+    version = 7,
+    exportSchema = false
+)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
     abstract fun chatDao(): ChatDao
+    abstract fun scheduledDownloadDao(): ScheduledDownloadDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null

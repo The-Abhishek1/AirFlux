@@ -7,8 +7,20 @@ import android.util.Base64
 import java.io.File
 
 class VoiceRecorder(private val context: Context) {
+
+    companion object {
+        // Voice messages are sent as a single base64 JSON line over the chat socket
+        // (see ChatSession/BluetoothChatSession). Capping duration keeps the payload
+        // small so a send finishes quickly, which also shrinks the window in which a
+        // concurrent send could contend for the write lock.
+        const val MAX_DURATION_MS = 2 * 60 * 1000 // 2 minutes
+    }
+
     private var recorder: MediaRecorder? = null
     private var outputFile: File? = null
+
+    /** Called if the recording is auto-stopped after hitting [MAX_DURATION_MS]. */
+    var onMaxDurationReached: (() -> Unit)? = null
 
     fun start(): Boolean {
         return try {
@@ -27,6 +39,12 @@ class VoiceRecorder(private val context: Context) {
                 setAudioEncodingBitRate(64000)
                 setAudioSamplingRate(44100)
                 setOutputFile(file.absolutePath)
+                setMaxDuration(MAX_DURATION_MS)
+                setOnInfoListener { _, what, _ ->
+                    if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
+                        onMaxDurationReached?.invoke()
+                    }
+                }
                 prepare()
                 start()
             }

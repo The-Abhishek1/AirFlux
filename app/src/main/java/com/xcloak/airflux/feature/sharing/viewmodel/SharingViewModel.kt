@@ -115,7 +115,13 @@ class SharingViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
             )
-            newServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            // NanoHTTPD.SOCKET_READ_TIMEOUT (5s) is meant for a single request's headers, but
+            // NanoHTTPD also reuses it as the keep-alive idle timeout on persistent connections.
+            // The receiver's OkHttp client pools connections for SHARE_KEEP_ALIVE_MILLIS (see
+            // HttpClientProvider) and can easily go longer than 5s between file taps while the
+            // user browses the list, so the server was closing the socket out from under a still
+            // -pooled client and the next download would fail with a connection reset.
+            newServer.start(com.xcloak.airflux.core.network.HttpClientProvider.SHARE_KEEP_ALIVE_MILLIS.toInt(), false)
             server = newServer
             val encFlag = if (_encryptionEnabled.value) "&enc=1" else ""
             _serverStatus.value = ServerStatus.Running("http://$ip:$PORT?token=$token$encFlag")

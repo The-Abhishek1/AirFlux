@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -25,6 +27,13 @@ class ChatSession(private val scope: CoroutineScope) {
     private var socket: Socket? = null
     private var serverSocket: ServerSocket? = null
     private var writer: PrintWriter? = null
+
+    // Guards `writer` so concurrent send()/sendImage()/sendAudio()/sendVideo() calls can't
+    // interleave their println() writes on the wire. Large payloads (audio/video base64)
+    // take noticeably longer to write than a short text message, so without this lock two
+    // messages sent close together could corrupt each other's JSON line and desync the
+    // stream for everything after them.
+    private val writeMutex = Mutex()
 
     private val _incoming = MutableSharedFlow<ChatWireMessage>(extraBufferCapacity = 64)
     val incoming: SharedFlow<ChatWireMessage> = _incoming
@@ -108,42 +117,31 @@ class ChatSession(private val scope: CoroutineScope) {
         }
     }
 
-    fun send(text: String) {
+    private fun sendWireLine(json: JSONObject) {
         val w = writer ?: return
         scope.launch(Dispatchers.IO) {
-            try {
-                val json = JSONObject().put("text", text).put("ts", System.currentTimeMillis()).put("type", "text")
-                w.println(json.toString())
-            } catch (e: Exception) { }
+            writeMutex.withLock {
+                try {
+                    w.println(json.toString())
+                } catch (e: Exception) { }
+            }
         }
     }
 
+    fun send(text: String) {
+        sendWireLine(JSONObject().put("text", text).put("ts", System.currentTimeMillis()).put("type", "text"))
+    }
+
     fun sendImage(base64: String) {
-        val w = writer ?: return
-        scope.launch(Dispatchers.IO) {
-            try {
-                val json = JSONObject().put("text", "[Photo]").put("ts", System.currentTimeMillis()).put("type", "image").put("img", base64)
-                w.println(json.toString())
-            } catch (e: Exception) { }
-        }
+        sendWireLine(JSONObject().put("text", "[Photo]").put("ts", System.currentTimeMillis()).put("type", "image").put("img", base64))
     }
+
     fun sendVideo(base64: String) {
-        val w = writer ?: return
-        scope.launch(Dispatchers.IO) {
-            try {
-                val json = JSONObject().put("text", "[Video]").put("ts", System.currentTimeMillis()).put("type", "video").put("img", base64)
-                w.println(json.toString())
-            } catch (e: Exception) { }
-        }
+        sendWireLine(JSONObject().put("text", "[Video]").put("ts", System.currentTimeMillis()).put("type", "video").put("img", base64))
     }
+
     fun sendAudio(base64: String) {
-        val w = writer ?: return
-        scope.launch(Dispatchers.IO) {
-            try {
-                val json = JSONObject().put("text", "[Voice message]").put("ts", System.currentTimeMillis()).put("type", "audio").put("img", base64)
-                w.println(json.toString())
-            } catch (e: Exception) { }
-        }
+        sendWireLine(JSONObject().put("text", "[Voice message]").put("ts", System.currentTimeMillis()).put("type", "audio").put("img", base64))
     }
 
     fun close() {

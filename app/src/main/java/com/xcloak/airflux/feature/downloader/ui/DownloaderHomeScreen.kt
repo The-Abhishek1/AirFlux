@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
@@ -69,14 +71,17 @@ import com.xcloak.airflux.ui.theme.TextSecondary
 import com.xcloak.airflux.ui.theme.WarningAmber
 import com.xcloak.airflux.core.ads.SpeedBoostBanner
 import androidx.navigation.compose.rememberNavController
+
 @Composable
 fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: () -> Unit = {}) {
     val context = LocalContext.current
     var url by remember { mutableStateOf("") }
+    var singleWifiOnly by remember { mutableStateOf(false) }
     var showBatchInput by remember { mutableStateOf(false) }
     var batchText by remember { mutableStateOf("") }
     val items by viewModel.items.collectAsState()
     val progressMap by viewModel.progress.collectAsState()
+    val pendingQueue by viewModel.pendingQueue.collectAsState()
     val isPro by PlanManager.isProFlow.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -88,7 +93,7 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
     }
 
     AppBackground {
-        Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
 
             Text("Download from Link", color = TextPrimary, style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.height(16.dp))
@@ -107,10 +112,16 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                        Checkbox(checked = singleWifiOnly, onCheckedChange = { singleWifiOnly = it }, colors = CheckboxDefaults.colors(checkedColor = ElectricCyan))
+                        Text("Only start on Wi-Fi", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = {
-                            viewModel.addDownload(url.trim())
+                            viewModel.addDownload(url.trim(), singleWifiOnly)
                             url = ""
                         },
                         enabled = url.trim().startsWith("http"),
@@ -174,7 +185,7 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
 
                     var showSchedule by remember { mutableStateOf(false) }
                     var delayMinutes by remember { mutableStateOf("30") }
-                    var wifiOnly by remember { mutableStateOf(true) }
+                    var scheduleWifiOnly by remember { mutableStateOf(true) }
 
                     TextButton(onClick = { showSchedule = !showSchedule }) {
                         if (!isPro) {
@@ -203,7 +214,7 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                                Checkbox(checked = wifiOnly, onCheckedChange = { wifiOnly = it }, colors = CheckboxDefaults.colors(checkedColor = ElectricCyan))
+                                Checkbox(checked = scheduleWifiOnly, onCheckedChange = { scheduleWifiOnly = it }, colors = CheckboxDefaults.colors(checkedColor = ElectricCyan))
                                 Text("Only start on Wi-Fi", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -211,7 +222,7 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
                                 onClick = {
                                     val mins = delayMinutes.toIntOrNull() ?: 0
                                     if (url.trim().startsWith("http") && mins > 0) {
-                                        viewModel.scheduleDownload(url.trim(), mins, wifiOnly)
+                                        viewModel.scheduleDownload(url.trim(), mins, scheduleWifiOnly)
                                         android.widget.Toast.makeText(
                                             context,
                                             "Download scheduled in $mins minute${if (mins == 1) "" else "s"}",
@@ -243,7 +254,7 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
             Spacer(modifier = Modifier.height(16.dp))
 
             if (items.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
                     Text(
                         "No downloads yet.\nPaste a link above to get started.",
                         color = TextMuted,
@@ -252,8 +263,10 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
                     )
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(items, key = { it.id }) { item ->
+                Text("Downloads", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items.forEach { item ->
                         DownloadRow(
                             item = item,
                             progress = progressMap[item.id],
@@ -267,10 +280,26 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
                 }
             }
 
+            if (pendingQueue.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Pending Queue (${pendingQueue.size})", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                pendingQueue.forEachIndexed { index, item ->
+                    QueueRow(
+                        item = item,
+                        isFirst = index == 0,
+                        isLast = index == pendingQueue.size - 1,
+                        onMoveUp = { viewModel.moveQueueItem(index, index - 1) },
+                        onMoveDown = { viewModel.moveQueueItem(index, index + 1) },
+                        onCancel = { viewModel.cancelDownload(item.id) }
+                    )
+                }
+            }
+
             val scheduledItems by viewModel.scheduled.collectAsState()
             val pending = scheduledItems.filter { !it.fired }
             if (pending.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
                 Text("Scheduled", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
                 Spacer(modifier = Modifier.height(8.dp))
                 pending.forEach { sch ->
@@ -303,6 +332,39 @@ fun DownloaderHomeScreen(viewModel: DownloaderViewModel = viewModel(), onGoPro: 
 }
 
 @Composable
+private fun QueueRow(
+    item: UrlDownloadItem,
+    isFirst: Boolean,
+    isLast: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onCancel: () -> Unit
+) {
+    GlassCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.fileName, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text("Queued${if (item.wifiOnly) " · Wi-Fi Only" else ""}", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+            }
+            Row {
+                IconButton(onClick = onMoveUp, enabled = !isFirst) {
+                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", tint = if (isFirst) TextMuted else ElectricCyan)
+                }
+                IconButton(onClick = onMoveDown, enabled = !isLast) {
+                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", tint = if (isLast) TextMuted else ElectricCyan)
+                }
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Default.Close, contentDescription = "Cancel", tint = ErrorRed)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DownloadRow(
     item: UrlDownloadItem,
     progress: DlProgress?,
@@ -317,18 +379,23 @@ private fun DownloadRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(item.fileName, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                    Text(
-                        if (item.sizeBytes > 0) FileUtils.formatSize(item.sizeBytes) else "Size unknown",
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (item.sizeBytes > 0) FileUtils.formatSize(item.sizeBytes) else "Size unknown",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (item.wifiOnly) {
+                            Text(" · Wi-Fi Only", color = ElectricCyan, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
 
                 when (progress?.status) {
                     DlStatus.DONE -> Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = SuccessGreen)
                     DlStatus.DOWNLOADING -> Row {
                         if (isPro) {
-                            IconButton(onClick = onPause) {
+                            IconButton(onClick = { onPause() }) {
                                 Icon(Icons.Default.Pause, contentDescription = "Pause", tint = WarningAmber)
                             }
                         }
@@ -369,7 +436,12 @@ private fun DownloadRow(
             if (progress?.status == DlStatus.PAUSED) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { progress.progress }, color = TextMuted, modifier = Modifier.fillMaxWidth())
-                Text("Paused", color = TextMuted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    if (progress.errorMessage == "Waiting for Wi-Fi") "Paused: Waiting for Wi-Fi" else "Paused",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
 
             if (progress?.status == DlStatus.FAILED) {

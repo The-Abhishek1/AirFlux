@@ -17,6 +17,7 @@ import com.xcloak.airflux.core.billing.PlanManager
 import com.xcloak.airflux.core.common.DownloadResult
 import com.xcloak.airflux.core.common.DownloadUtils
 import com.xcloak.airflux.core.common.MetadataResolver
+import com.xcloak.airflux.core.common.NetworkStateUtils
 import com.xcloak.airflux.core.common.StorageUtils
 import com.xcloak.airflux.core.common.UrlUtils
 import com.xcloak.airflux.core.network.HttpClientProvider
@@ -25,6 +26,7 @@ import com.xcloak.airflux.core.service.DownloadForegroundService
 import com.xcloak.airflux.core.work.ScheduledDownloadWorker
 import com.xcloak.airflux.data.database.entity.HistoryType
 import com.xcloak.airflux.data.repository.HistoryRepository
+import com.xcloak.airflux.data.repository.ScheduledDownloadRepository
 import com.xcloak.airflux.domain.model.ScheduledDownload
 import com.xcloak.airflux.domain.model.UrlDownloadItem
 import kotlinx.coroutines.Dispatchers
@@ -34,12 +36,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 
 enum class DlStatus { RESOLVING, QUEUED, DOWNLOADING, PAUSED, DONE, FAILED, CANCELLED }
@@ -57,6 +59,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private val client = HttpClientProvider.client
     private val historyRepo = HistoryRepository(application)
+    private val scheduledRepo = ScheduledDownloadRepository(application)
 
     private val _items = MutableStateFlow<List<UrlDownloadItem>>(emptyList())
     val items: StateFlow<List<UrlDownloadItem>> = _items.asStateFlow()
@@ -67,12 +70,59 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     private val _scheduled = MutableStateFlow<List<ScheduledDownload>>(emptyList())
     val scheduled: StateFlow<List<ScheduledDownload>> = _scheduled.asStateFlow()
 
+    private val _pendingQueue = MutableStateFlow<List<UrlDownloadItem>>(emptyList())
+    val pendingQueue: StateFlow<List<UrlDownloadItem>> = _pendingQueue.asStateFlow()
+
+    init {
+        // Rehydrate the "Scheduled" list from Room on (re)creation.
+        viewModelScope.launch {
+            val pending = withContext(Dispatchers.IO) { scheduledRepo.getPending() }
+            _scheduled.value = pending
+            pending.forEach { observeWork(it.id) }
+        }
+
+        // Auto-resume logic
+        viewModelScope.launch {
+            NetworkStateUtils.observeNetworkChanges(application).collect { isConnected ->
+                if (isConnected) {
+                    val isOnWifi = NetworkStateUtils.isOnWifi(application)
+                    
+                    // 1. Resume Wi-Fi Only downloads that were paused due to network switch
+                    _items.value.filter { it.wifiOnly && isOnWifi }.forEach { item ->
+                        val current = _progress.value[item.id]
+                        if (current?.status == DlStatus.PAUSED && current.errorMessage == "Waiting for Wi-Fi") {
+                            resumeDownload(item)
+                        }
+                    }
+
+                    // 2. Retry failed downloads that failed due to connection error
+                    _items.value.forEach { item ->
+                        val current = _progress.value[item.id]
+                        if (current?.status == DlStatus.FAILED && (current.errorMessage?.contains("connection", ignoreCase = true) == true || current.errorMessage?.contains("fetch", ignoreCase = true) == true)) {
+                            retryDownload(item)
+                        }
+                    }
+                    
+                    // 3. Process queue if slots opened up
+                    processQueue()
+                } else {
+                    // Auto-pause Wi-Fi only downloads if network is lost or switched to mobile
+                    _items.value.filter { it.wifiOnly }.forEach { item ->
+                        val current = _progress.value[item.id]
+                        if (current?.status == DlStatus.DOWNLOADING) {
+                            pauseDownload(item.id, "Waiting for Wi-Fi")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private val _showInterstitialEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val showInterstitialEvent: SharedFlow<Unit> = _showInterstitialEvent
 
     private val activeCalls = mutableMapOf<String, Call>()
     private val activeJobs = mutableMapOf<String, Job>()
-    private val pendingQueue = ConcurrentLinkedQueue<UrlDownloadItem>()
     private var activeCount = 0
 
     private val savedMediaUri = mutableMapOf<String, Uri>()
@@ -80,11 +130,11 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private var serviceRunning = false
 
-    fun addDownload(url: String) {
+    fun addDownload(url: String, wifiOnly: Boolean = false) {
         if (!UrlUtils.isValidUrl(url)) return
         val id = UUID.randomUUID().toString()
 
-        val placeholder = UrlDownloadItem(id, url, "Resolving link...", "application/octet-stream", -1L)
+        val placeholder = UrlDownloadItem(id, url, "Resolving link...", "application/octet-stream", -1L, wifiOnly)
         _items.value = _items.value + placeholder
         updateProgress(id, DlProgress(status = DlStatus.RESOLVING))
 
@@ -94,7 +144,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                 updateProgress(id, DlProgress(status = DlStatus.FAILED, errorMessage = "Could not read file info from this link"))
                 return@launch
             }
-            val item = UrlDownloadItem(id, url, resolved.first, resolved.second, resolved.third)
+            val item = UrlDownloadItem(id, url, resolved.first, resolved.second, resolved.third, wifiOnly)
             _items.value = _items.value.map { if (it.id == id) item else it }
             enqueue(item)
         }
@@ -105,8 +155,6 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         urls.map { it.trim() }.filter { it.startsWith("http") }.forEach { addDownload(it) }
     }
 
-    /** Now backed by WorkManager instead of an in-memory delay, so it survives
-     *  leaving this screen, backgrounding the app, and reasonable process death. */
     fun scheduleDownload(url: String, delayMinutes: Int, wifiOnly: Boolean) {
         if (!PlanManager.isPro) return
         if (!UrlUtils.isValidUrl(url)) return
@@ -115,6 +163,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         val triggerAt = System.currentTimeMillis() + (delayMinutes * 60_000L)
         val scheduledItem = ScheduledDownload(id, url, triggerAt, wifiOnly)
         _scheduled.value = _scheduled.value + scheduledItem
+        viewModelScope.launch(Dispatchers.IO) { scheduledRepo.insert(scheduledItem) }
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
@@ -123,16 +172,32 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         val request = OneTimeWorkRequestBuilder<ScheduledDownloadWorker>()
             .setInitialDelay(delayMinutes.toLong(), TimeUnit.MINUTES)
             .setConstraints(constraints)
-            .setInputData(workDataOf(ScheduledDownloadWorker.KEY_URL to url))
+            .setInputData(
+                workDataOf(
+                    ScheduledDownloadWorker.KEY_URL to url,
+                    ScheduledDownloadWorker.KEY_WIFI_ONLY to wifiOnly
+                )
+            )
             .build()
 
         val workManager = WorkManager.getInstance(getApplication())
         workManager.enqueueUniqueWork("scheduled_download_$id", androidx.work.ExistingWorkPolicy.REPLACE, request)
+        observeWork(id, request.id)
+    }
 
+    private fun observeWork(id: String, requestId: java.util.UUID? = null) {
+        val workManager = WorkManager.getInstance(getApplication())
+        val infoFlow = if (requestId != null) {
+            workManager.getWorkInfoByIdFlow(requestId)
+        } else {
+            workManager.getWorkInfosForUniqueWorkFlow("scheduled_download_$id")
+                .map { it.firstOrNull() }
+        }
         viewModelScope.launch {
-            workManager.getWorkInfoByIdFlow(request.id).collect { info ->
+            infoFlow.collect { info ->
                 if (info?.state == WorkInfo.State.SUCCEEDED || info?.state == WorkInfo.State.FAILED) {
                     _scheduled.value = _scheduled.value.map { if (it.id == id) it.copy(fired = true) else it }
+                    withContext(Dispatchers.IO) { scheduledRepo.markFired(id) }
                 }
             }
         }
@@ -141,6 +206,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     fun cancelScheduled(id: String) {
         WorkManager.getInstance(getApplication()).cancelUniqueWork("scheduled_download_$id")
         _scheduled.value = _scheduled.value.filter { it.id != id }
+        viewModelScope.launch(Dispatchers.IO) { scheduledRepo.delete(id) }
     }
 
     private fun enqueue(item: UrlDownloadItem) {
@@ -148,7 +214,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             startDownload(item, resumeFromByte = 0)
         } else {
             updateProgress(item.id, DlProgress(status = DlStatus.QUEUED))
-            pendingQueue.add(item)
+            _pendingQueue.value = _pendingQueue.value + item
         }
     }
 
@@ -159,18 +225,22 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         activeJobs.remove(id)
         savedMediaUri.remove(id)
         liveBytes.remove(id)
+        _pendingQueue.value = _pendingQueue.value.filter { it.id != id }
         updateProgress(id, DlProgress(status = DlStatus.CANCELLED))
+        processQueue()
     }
 
-    fun pauseDownload(id: String) {
+    fun pauseDownload(id: String, reason: String? = null) {
         if (!PlanManager.isPro) return
         val current = _progress.value[id] ?: return
         activeCalls[id]?.cancel()
         activeJobs[id]?.cancel()
         activeCalls.remove(id)
         activeJobs.remove(id)
+        activeCount--
         val checkpoint = liveBytes[id] ?: current.bytesDownloaded
-        updateProgress(id, current.copy(status = DlStatus.PAUSED, bytesDownloaded = checkpoint))
+        updateProgress(id, current.copy(status = DlStatus.PAUSED, bytesDownloaded = checkpoint, errorMessage = reason))
+        processQueue()
     }
 
     fun resumeDownload(item: UrlDownloadItem) {
@@ -183,17 +253,33 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             startDownload(item, resumeFromByte = resumeFrom)
         } else {
             updateProgress(item.id, DlProgress(status = DlStatus.QUEUED, bytesDownloaded = resumeFrom))
-            pendingQueue.add(item)
+            if (_pendingQueue.value.none { it.id == item.id }) {
+                _pendingQueue.value = _pendingQueue.value + item
+            }
         }
     }
 
     fun retryDownload(item: UrlDownloadItem) {
         savedMediaUri.remove(item.id)
         liveBytes.remove(item.id)
+        _pendingQueue.value = _pendingQueue.value.filter { it.id != item.id }
         enqueue(item)
     }
 
+    fun moveQueueItem(from: Int, to: Int) {
+        val current = _pendingQueue.value.toMutableList()
+        if (from !in current.indices || to !in current.indices) return
+        val item = current.removeAt(from)
+        current.add(to, item)
+        _pendingQueue.value = current
+    }
+
     private fun startDownload(item: UrlDownloadItem, resumeFromByte: Long) {
+        if (item.wifiOnly && !NetworkStateUtils.isOnWifi(getApplication())) {
+            updateProgress(item.id, DlProgress(status = DlStatus.PAUSED, errorMessage = "Waiting for Wi-Fi", bytesDownloaded = resumeFromByte))
+            return
+        }
+
         if (!StorageUtils.hasEnoughSpace(item.sizeBytes)) {
             updateProgress(item.id, DlProgress(status = DlStatus.FAILED, errorMessage = "Not enough storage space"))
             return
@@ -250,7 +336,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
             } catch (e: Exception) {
-                DownloadResult(false)
+                DownloadResult(false, errorMessage = e.message ?: "Connection failure")
             }
 
             activeCalls.remove(item.id)
@@ -265,11 +351,13 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
             if (!wasCancelled && !wasPaused) {
                 val finalStatus = if (result.success) DlStatus.DONE else DlStatus.FAILED
-                val errorMsg = if (finalStatus == DlStatus.FAILED) "Download failed — check connection and retry" else null
+                val errorMsg = if (finalStatus == DlStatus.FAILED) {
+                    result.errorMessage ?: "Download failed — check connection and retry"
+                } else null
                 updateProgress(item.id, DlProgress(if (result.success) 1f else 0f, finalStatus, errorMessage = errorMsg, bytesDownloaded = result.bytesWritten))
                 liveBytes.remove(item.id)
 
-                historyRepo.record(item.fileName, item.sizeBytes, item.mimeType, HistoryType.DOWNLOADED, result.success)
+                historyRepo.record(item.fileName, item.sizeBytes, item.mimeType, HistoryType.DOWNLOADED, result.success, result.mediaUri?.toString())
 
                 if (result.success) {
                     NotificationHelper.notify(
@@ -289,7 +377,10 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun processQueue() {
         while (activeCount < PlanManager.maxConcurrentTransfers()) {
-            val next = pendingQueue.poll() ?: break
+            val queue = _pendingQueue.value
+            if (queue.isEmpty()) break
+            val next = queue.first()
+            _pendingQueue.value = queue.drop(1)
             val resumeFrom = _progress.value[next.id]?.bytesDownloaded ?: 0L
             startDownload(next, resumeFrom)
         }
@@ -303,7 +394,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun stopServiceIfIdle() {
-        if (activeCount > 0 || pendingQueue.isNotEmpty()) return
+        if (activeCount > 0 || _pendingQueue.value.isNotEmpty()) return
         val context: Application = getApplication()
         context.stopService(Intent(context, DownloadForegroundService::class.java))
         serviceRunning = false

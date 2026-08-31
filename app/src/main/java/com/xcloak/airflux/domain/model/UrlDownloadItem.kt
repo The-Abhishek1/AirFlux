@@ -5,5 +5,6 @@ data class UrlDownloadItem(
     val url: String,
     val fileName: String,
     val mimeType: String,
-    val sizeBytes: Long
+    val sizeBytes: Long,
+    val wifiOnly: Boolean = false
 )

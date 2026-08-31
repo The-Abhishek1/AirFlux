@@ -11,7 +11,7 @@ class HistoryRepository(context: Context) {
 
     fun getAll(): Flow<List<HistoryEntity>> = dao.getAll()
 
-    suspend fun record(fileName: String, sizeBytes: Long, mimeType: String, type: HistoryType, success: Boolean) {
+    suspend fun record(fileName: String, sizeBytes: Long, mimeType: String, type: HistoryType, success: Boolean, mediaPath: String? = null) {
         dao.insert(
             HistoryEntity(
                 fileName = fileName,
@@ -19,7 +19,8 @@ class HistoryRepository(context: Context) {
                 mimeType = mimeType,
                 type = type,
                 timestamp = System.currentTimeMillis(),
-                success = success
+                success = success,
+                mediaPath = mediaPath
             )
         )
     }

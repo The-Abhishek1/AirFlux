@@ -15,7 +15,8 @@ data class DownloadResult(
     val success: Boolean,
     val mediaUri: Uri? = null,
     val bytesWritten: Long = 0,
-    val totalBytes: Long = 0
+    val totalBytes: Long = 0,
+    val errorMessage: String? = null
 )
 
 object DownloadUtils {
@@ -41,8 +42,10 @@ object DownloadUtils {
     ): DownloadResult {
         call.execute().use { response ->
             val serverHonoredRange = response.code == 206
-            if (!response.isSuccessful && !serverHonoredRange) return DownloadResult(false)
-            val body = response.body ?: return DownloadResult(false)
+            if (!response.isSuccessful && !serverHonoredRange) {
+                return DownloadResult(false, errorMessage = "Server returned ${response.code} ${response.message}")
+            }
+            val body = response.body ?: return DownloadResult(false, errorMessage = "Empty response body")
 
             val safeName = SecurityUtils.sanitizeFileName(fileName)
             val resolver = context.contentResolver
@@ -72,7 +75,7 @@ object DownloadUtils {
                             put(MediaStore.MediaColumns.IS_PENDING, 1)
                         }
                     }
-                    itemUri = resolver.insert(collection, values) ?: return DownloadResult(false)
+                    itemUri = resolver.insert(collection, values) ?: return DownloadResult(false, errorMessage = "Failed to create file in MediaStore")
                     openMode = "w"
                     effectiveResumeFrom = 0
                 }
@@ -81,7 +84,7 @@ object DownloadUtils {
             val contentLength = body.contentLength()
             val totalBytes = if (effectiveResumeFrom > 0) effectiveResumeFrom + contentLength else contentLength
 
-            val outputStream = resolver.openOutputStream(itemUri, openMode) ?: return DownloadResult(false)
+            val outputStream = resolver.openOutputStream(itemUri, openMode) ?: return DownloadResult(false, errorMessage = "Failed to open output stream")
             outputStream.use { out ->
                 val rawInput = body.byteStream()
                 // This is the fix: without this wrap, an encrypted transfer was being

@@ -368,6 +368,18 @@ private fun BtChatConversation(
         }
     }
 
+    // Auto-finalize and send if the recorder hits its max duration cap, instead of
+    // leaving the recording running silently past the point MediaRecorder stopped writing.
+    LaunchedEffect(recorder) {
+        recorder.onMaxDurationReached = {
+            if (isRecording) {
+                val base64 = recorder.stopAndGetBase64()
+                isRecording = false
+                if (base64 != null) onSendAudio(base64)
+            }
+        }
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
@@ -497,7 +509,7 @@ private fun BtMessageBubble(msg: ChatMessage) {
                                     isPlaying = false
                                 } else {
                                     isPlaying = true
-                                    VoicePlayer.playFile(msg.id, msg.mediaPath) { isPlaying = false }
+                                    VoicePlayer.playFile(msg.id, msg.mediaPath, onCompletion = { isPlaying = false })
                                 }
                             },
                             modifier = Modifier.size(32.dp)

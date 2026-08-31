@@ -17,24 +17,26 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xcloak.airflux.ui.theme.DeepSpace
-import com.xcloak.airflux.ui.theme.DeepSpaceLight
 import com.xcloak.airflux.ui.theme.ElectricCyan
 import com.xcloak.airflux.ui.theme.GlassBorder
 import com.xcloak.airflux.ui.theme.GlassWhite
-import com.xcloak.airflux.ui.theme.MidnightBlue
 import com.xcloak.airflux.ui.theme.TextPrimary
 
 /** Full-screen gradient backdrop with soft ambient glow — use as the root of every screen.
  *  Applies status bar + navigation bar padding so content never draws under system UI. */
 @Composable
 fun AppBackground(content: @Composable () -> Unit) {
+    val bgColor = MaterialTheme.colorScheme.background
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(DeepSpace, DeepSpaceLight, MidnightBlue)
+                    colors = listOf(bgColor, surfaceColor, surfaceVariant)
                 )
             )
     ) {
@@ -44,7 +46,7 @@ fun AppBackground(content: @Composable () -> Unit) {
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(ElectricCyan.copy(alpha = 0.10f), Color.Transparent),
+                        colors = listOf(primaryColor.copy(alpha = 0.10f), Color.Transparent),
                         center = Offset(0.85f, 0.05f),
                         radius = 900f
                     )

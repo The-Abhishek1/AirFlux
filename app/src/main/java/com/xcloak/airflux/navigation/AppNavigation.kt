@@ -1,5 +1,9 @@
 package com.xcloak.airflux.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +52,7 @@ import com.xcloak.airflux.core.designsystem.accessibleClickableCard
 import com.xcloak.airflux.feature.btchat.ui.BtChatScreen
 import com.xcloak.airflux.feature.chat.ui.ChatScreen
 import com.xcloak.airflux.feature.downloader.ui.DownloaderHomeScreen
-import com.xcloak.airflux.feature.history.ui.HistoryScreen
+import com.xcloak.airflux.feature.history.ui.GalleryScreen
 import com.xcloak.airflux.feature.onboarding.ui.OnboardingScreen
 import com.xcloak.airflux.feature.settings.ui.SettingsScreen
 import com.xcloak.airflux.feature.sharing.ui.ReceiveScreen
@@ -69,7 +73,34 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
     }
 
-    NavHost(navController = navController, startDestination = startDest) {
+    NavHost(
+        navController = navController,
+        startDestination = startDest,
+        enterTransition = {
+            fadeIn(animationSpec = tween(300)) + slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(300)
+            )
+        },
+        exitTransition = {
+            fadeOut(animationSpec = tween(300)) + slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(300)
+            )
+        },
+        popEnterTransition = {
+            fadeIn(animationSpec = tween(300)) + slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(300)
+            )
+        },
+        popExitTransition = {
+            fadeOut(animationSpec = tween(300)) + slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(300)
+            )
+        }
+    ) {
 
         composable("onboarding") {
             OnboardingScreen(
@@ -84,14 +115,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             HomeScreen(
                 onShareClick = { navController.navigate("sharing_graph") },
                 onDownloadClick = { navController.navigate("downloader_graph") },
-                onHistoryClick = { navController.navigate("history") },
+                onGalleryClick = { navController.navigate("gallery") },
                 onSettingsClick = { navController.navigate("settings") },
                 onChatClick = { navController.navigate("chat") },
                 onBtChatClick = { navController.navigate("bt_chat") }
             )
         }
 
-        composable("history") { HistoryScreen() }
+        composable("gallery") { GalleryScreen() }
         composable("settings") { SettingsScreen(onGoProClick = { navController.navigate("go_pro") }) }
         composable("chat") { ChatScreen() }
         composable("bt_chat") { BtChatScreen() }
@@ -118,7 +149,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
 fun HomeScreen(
     onShareClick: () -> Unit,
     onDownloadClick: () -> Unit,
-    onHistoryClick: () -> Unit,
+    onGalleryClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onChatClick: () -> Unit,
     onBtChatClick: () -> Unit
@@ -175,9 +206,9 @@ fun HomeScreen(
 
             HomeMenuCard(
                 icon = Icons.Default.History,
-                title = "History",
-                description = "View past transfers and downloads",
-                onClick = onHistoryClick
+                title = "Gallery",
+                description = "View your shared and downloaded media",
+                onClick = onGalleryClick
             )
             Spacer(modifier = Modifier.height(12.dp))
 

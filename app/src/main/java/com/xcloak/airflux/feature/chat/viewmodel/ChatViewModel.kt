@@ -10,6 +10,8 @@ import com.xcloak.airflux.core.common.ImageCompressUtils
 import com.xcloak.airflux.core.common.MediaKind
 import com.xcloak.airflux.core.common.VideoUtils
 import com.xcloak.airflux.core.network.ChatSession
+import com.xcloak.airflux.core.network.ChatDiscoveryManager
+import com.xcloak.airflux.core.network.DiscoveredChat
 import com.xcloak.airflux.core.network.NetworkUtils
 import com.xcloak.airflux.core.security.SecurityUtils
 import com.xcloak.airflux.data.database.entity.ChatChannel
@@ -46,6 +48,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = ChatRepository(application, ChatChannel.WIFI)
     private val session = ChatSession(viewModelScope)
+    private val discoveryManager = ChatDiscoveryManager(application)
 
     private val _connectionState = MutableStateFlow<ChatConnectionState>(ChatConnectionState.Idle)
     val connectionState: StateFlow<ChatConnectionState> = _connectionState.asStateFlow()
@@ -55,6 +58,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _sendError = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val sendError: SharedFlow<String> = _sendError
+
+    val discoveredDevices: StateFlow<List<DiscoveredChat>> = discoveryManager.discoveredDevices
 
     val messages: StateFlow<List<ChatMessage>> = repo.getAll()
         .map { list -> list.map { ChatMessage(it.id, it.text, it.timestamp, it.isMine, it.type, it.mediaPath) } }
@@ -67,6 +72,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     isConnected -> ChatConnectionState.Connected
                     _connectionState.value == ChatConnectionState.Connected -> ChatConnectionState.Disconnected
                     else -> _connectionState.value
+                }
+                if (isConnected) {
+                    discoveryManager.stopDiscovery()
+                } else if (_connectionState.value == ChatConnectionState.Idle) {
+                    discoveryManager.startDiscovery()
+                }
+            }
+        }
+        viewModelScope.launch {
+            _connectionState.collect { state ->
+                if (state == ChatConnectionState.Idle) {
+                    discoveryManager.startDiscovery()
+                } else {
+                    discoveryManager.stopDiscovery()
                 }
             }
         }
@@ -102,6 +121,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _hostInfo.value = "$ip:$CHAT_PORT?token=$token"
         _connectionState.value = ChatConnectionState.Waiting
         session.startHost(CHAT_PORT, token)
+        discoveryManager.registerService(CHAT_PORT, token)
     }
 
     fun joinChat(address: String) {
@@ -180,6 +200,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun disconnect() {
         session.close()
+        discoveryManager.stopRegistration()
         _connectionState.value = ChatConnectionState.Idle
         _hostInfo.value = null
     }
@@ -187,5 +208,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         session.close()
+        discoveryManager.stopDiscovery()
+        discoveryManager.stopRegistration()
     }
 }
